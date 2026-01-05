@@ -51,3 +51,11 @@ export interface BlockedDate {
   created_at?: string;
 }
 
+export interface BlockedTimeSlot {
+  id?: string;
+  date: string; // Format: "YYYY-MM-DD"
+  start_time: string; // Format: "HH:MM"
+  end_time: string; // Format: "HH:MM"
+  created_at?: string;
+}
+

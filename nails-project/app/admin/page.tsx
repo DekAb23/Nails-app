@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { FaWhatsapp, FaPhone, FaTimes, FaCalendarTimes } from 'react-icons/fa';
-import { supabase, Booking, BlockedDate } from '@/lib/supabase';
-
-const ADMIN_PASSWORD = '1234';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot } from '@/lib/supabase';
+import { Session } from '@supabase/supabase-js';
 
 interface Activity {
   id: string;
@@ -16,25 +15,145 @@ interface Activity {
   timestamp: Date;
 }
 
-export default function AdminPage() {
+// LoginForm Component
+function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        setError('אימייל או סיסמה שגויים');
+        return;
+      }
+
+      if (data.session) {
+        onLoginSuccess();
+      }
+    } catch (err) {
+      setError('אירעה שגיאה בהתחברות');
+      console.error('Login error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 to-rose-50 px-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+        <h1 className="text-3xl font-bold text-center text-[#2c2c2c] mb-6">לוח בקרה</h1>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-[#2c2c2c] mb-2">
+              אימייל
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
+              placeholder="your@email.com"
+              autoFocus
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-[#2c2c2c] mb-2">
+              סיסמה
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
+              placeholder="הכנס סיסמה"
+              required
+            />
+          </div>
+          {error && (
+            <p className="text-red-500 text-sm text-center">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full px-6 py-3 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'מתחבר...' : 'התחבר'}
+          </button>
+        </form>
+        <button
+          onClick={() => router.push('/')}
+          className="w-full mt-4 px-6 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
+        >
+          חזרה לעמוד הראשי
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function AdminPage() {
+  const router = useRouter();
+  const [session, setSession] = useState<Session | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
+  const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showBlockDatePicker, setShowBlockDatePicker] = useState(false);
   const [dateToBlock, setDateToBlock] = useState<Date | undefined>(undefined);
   const [blockingDate, setBlockingDate] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
+  
+  // Special Closures state
+  const [specialClosureType, setSpecialClosureType] = useState<'full' | 'partial'>('full');
+  const [partialBlockDate, setPartialBlockDate] = useState<Date | undefined>(undefined);
+  const [partialBlockStartTime, setPartialBlockStartTime] = useState<string>('09:00');
+  const [partialBlockEndTime, setPartialBlockEndTime] = useState<string>('10:00');
+  const [savingPartialBlock, setSavingPartialBlock] = useState(false);
+
+  const checkSession = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+    } catch (error) {
+      console.error('Error checking session:', error);
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
+
+  // Check session on mount and listen to auth changes
+  useEffect(() => {
+    checkSession();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setCheckingAuth(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (session) {
       fetchBookings();
       fetchBlockedDates();
+      fetchBlockedTimeSlots();
       // Load activities from localStorage
       const savedActivities = localStorage.getItem('admin_activities');
       if (savedActivities) {
@@ -49,7 +168,7 @@ export default function AdminPage() {
         }
       }
     }
-  }, [isAuthenticated]);
+  }, [session]);
 
   const addActivity = (activity: Omit<Activity, 'id' | 'timestamp'>) => {
     const newActivity: Activity = {
@@ -76,15 +195,15 @@ export default function AdminPage() {
     return date.toLocaleDateString('he-IL');
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
-      setError('');
-      setPassword('');
-    } else {
-      setError('סיסמה שגויה');
-      setPassword('');
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setSession(null);
+      setBookings([]);
+      setBlockedDates([]);
+      setActivities([]);
+    } catch (error) {
+      console.error('Error logging out:', error);
     }
   };
 
@@ -126,6 +245,89 @@ export default function AdminPage() {
       }
     } catch (error) {
       console.error('Error:', error);
+    }
+  };
+
+  const fetchBlockedTimeSlots = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('blocked_time_slots')
+        .select('*')
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching blocked time slots:', error);
+      } else {
+        setBlockedTimeSlots(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const handleAddPartialBlock = async () => {
+    if (!partialBlockDate) {
+      alert('אנא בחר תאריך');
+      return;
+    }
+
+    if (partialBlockStartTime >= partialBlockEndTime) {
+      alert('שעת התחלה חייבת להיות לפני שעת הסיום');
+      return;
+    }
+
+    setSavingPartialBlock(true);
+    try {
+      const dateStr = formatDateToString(partialBlockDate);
+      const { error } = await supabase
+        .from('blocked_time_slots')
+        .insert([{
+          date: dateStr,
+          start_time: partialBlockStartTime,
+          end_time: partialBlockEndTime
+        }]);
+
+      if (error) {
+        console.error('Error adding partial block:', error);
+        alert('אירעה שגיאה בהוספת חסימת זמן');
+      } else {
+        alert('חסימת זמן נוספה בהצלחה');
+        setPartialBlockDate(undefined);
+        setPartialBlockStartTime('09:00');
+        setPartialBlockEndTime('10:00');
+        await fetchBlockedTimeSlots();
+        await fetchBookings();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('אירעה שגיאה');
+    } finally {
+      setSavingPartialBlock(false);
+    }
+  };
+
+  const handleDeletePartialBlock = async (id: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את חסימת הזמן הזו?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('blocked_time_slots')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Error deleting partial block:', error);
+        alert('אירעה שגיאה במחיקת חסימת זמן');
+      } else {
+        await fetchBlockedTimeSlots();
+        await fetchBookings();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('אירעה שגיאה במחיקת חסימת זמן');
     }
   };
 
@@ -354,45 +556,20 @@ export default function AdminPage() {
     };
   }, [bookings]);
 
-  if (!isAuthenticated) {
+  // Show loading state while checking auth
+  if (checkingAuth) {
     return (
       <div dir="rtl" className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 to-rose-50 px-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
-          <h1 className="text-3xl font-bold text-center text-[#2c2c2c] mb-6">לוח בקרה</h1>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                סיסמה
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-                placeholder="הכנס סיסמה"
-                autoFocus
-              />
-            </div>
-            {error && (
-              <p className="text-red-500 text-sm text-center">{error}</p>
-            )}
-            <button
-              type="submit"
-              className="w-full px-6 py-3 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors"
-            >
-              התחבר
-            </button>
-          </form>
-          <button
-            onClick={() => router.push('/')}
-            className="w-full mt-4 px-6 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
-          >
-            חזרה לעמוד הראשי
-          </button>
+        <div className="text-center">
+          <div className="text-[#2c2c2c] text-lg">בודק הרשאות...</div>
         </div>
       </div>
     );
+  }
+
+  // Show login form if no session
+  if (!session) {
+    return <LoginForm onLoginSuccess={checkSession} />;
   }
 
   return (
@@ -403,7 +580,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-3xl font-bold text-[#2c2c2c]">לוח בקרה - אדר קוסמטיקס</h1>
             <button
-              onClick={() => setIsAuthenticated(false)}
+              onClick={handleLogout}
               className="px-4 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
             >
               התנתק
@@ -810,6 +987,137 @@ export default function AdminPage() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Special Closures Section */}
+        <div className="mt-6 bg-white rounded-2xl shadow-xl p-4 md:p-6">
+          <h3 className="text-xl md:text-2xl font-bold text-[#2c2c2c] mb-4">חסימות מיוחדות</h3>
+          
+          {/* Tabs */}
+          <div className="flex gap-4 mb-6 border-b border-[#e0e0e0]">
+            <button
+              onClick={() => setSpecialClosureType('full')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                specialClosureType === 'full'
+                  ? 'text-[#c9a961] border-b-2 border-[#c9a961]'
+                  : 'text-[#666666] hover:text-[#2c2c2c]'
+              }`}
+            >
+              חסימת יום מלא
+            </button>
+            <button
+              onClick={() => setSpecialClosureType('partial')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                specialClosureType === 'partial'
+                  ? 'text-[#c9a961] border-b-2 border-[#c9a961]'
+                  : 'text-[#666666] hover:text-[#2c2c2c]'
+              }`}
+            >
+              חסימת זמן חלקית
+            </button>
+          </div>
+
+          {/* Full Day Block Tab */}
+          {specialClosureType === 'full' && (
+            <div>
+              <p className="text-[#666666] mb-4">
+                לחצו על כפתור "חסום תאריך" בלוח השנה כדי לחסום יום מלא
+              </p>
+            </div>
+          )}
+
+          {/* Partial Block Tab */}
+          {specialClosureType === 'partial' && (
+            <div className="space-y-6">
+              {/* Add Partial Block Form */}
+              <div className="bg-[#f5f5f5] rounded-lg p-4">
+                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">הוסף חסימת זמן</h4>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
+                      תאריך
+                    </label>
+                    <DayPicker
+                      mode="single"
+                      selected={partialBlockDate}
+                      onSelect={(date) => setPartialBlockDate(date)}
+                      className="bg-white rounded-lg p-2"
+                      modifiers={{
+                        blocked: blockedDateObjects
+                      }}
+                      modifiersClassNames={{
+                        blocked: 'blocked'
+                      }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
+                        שעת התחלה
+                      </label>
+                      <input
+                        type="time"
+                        value={partialBlockStartTime}
+                        onChange={(e) => setPartialBlockStartTime(e.target.value)}
+                        className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
+                        שעת סיום
+                      </label>
+                      <input
+                        type="time"
+                        value={partialBlockEndTime}
+                        onChange={(e) => setPartialBlockEndTime(e.target.value)}
+                        className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAddPartialBlock}
+                    disabled={!partialBlockDate || savingPartialBlock}
+                    className="w-full px-4 py-2 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingPartialBlock ? 'מוסיף...' : 'הוסף חסימת זמן'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Existing Partial Blocks List */}
+              <div>
+                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">חסימות זמן קיימות</h4>
+                {blockedTimeSlots.length === 0 ? (
+                  <p className="text-[#666666] text-center py-4">אין חסימות זמן חלקיות</p>
+                ) : (
+                  <div className="space-y-2">
+                    {blockedTimeSlots.map((slot) => (
+                      <div
+                        key={slot.id}
+                        className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-4 py-3"
+                      >
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm font-medium text-[#2c2c2c]">
+                            {formatDate(slot.date)}
+                          </span>
+                          <span className="text-sm text-[#666666]">
+                            {slot.start_time} - {slot.end_time}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => slot.id && handleDeletePartialBlock(slot.id)}
+                          className="text-orange-600 hover:text-orange-700 text-sm font-medium"
+                          title="מחק"
+                        >
+                          <FaTimes className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

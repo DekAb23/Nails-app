@@ -7,7 +7,7 @@ import { SiWaze } from 'react-icons/si';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
-import { supabase, Booking, BlockedDate } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot } from '@/lib/supabase';
 
 type Step = 'services' | 'calendar' | 'contact' | 'success';
 
@@ -33,6 +33,7 @@ export default function Home() {
   // Blocked dates state
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [loadingBlockedDates, setLoadingBlockedDates] = useState(false);
+  const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
 
   const services = [
     {
@@ -67,9 +68,10 @@ export default function Home() {
 
   const selectedServiceData = services.find(s => s.id === selectedService);
 
-  // Fetch blocked dates on component mount
+  // Fetch blocked dates and time slots on component mount
   useEffect(() => {
     fetchBlockedDates();
+    fetchBlockedTimeSlots();
   }, []);
 
   // Fetch bookings from Supabase when date is selected
@@ -100,6 +102,24 @@ export default function Home() {
     }
   };
 
+  const fetchBlockedTimeSlots = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('blocked_time_slots')
+        .select('*')
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching blocked time slots:', error);
+      } else {
+        setBlockedTimeSlots(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
   const fetchBookings = async (date: Date) => {
     setLoadingBookings(true);
     try {
@@ -127,23 +147,36 @@ export default function Home() {
     }
   };
 
-  // Check if a time slot conflicts with existing bookings
-  const isTimeSlotBlocked = (slotStart: string, slotEnd: string): boolean => {
-    return bookings.some(booking => {
-      // Convert time strings to minutes for comparison
-      const timeToMinutes = (time: string) => {
-        const [hours, minutes] = time.split(':').map(Number);
-        return hours * 60 + minutes;
-      };
+  // Check if a time slot conflicts with existing bookings or blocked time slots
+  const isTimeSlotBlocked = (slotStart: string, slotEnd: string, date: Date): boolean => {
+    // Convert time strings to minutes for comparison
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
 
-      const slotStartMinutes = timeToMinutes(slotStart);
-      const slotEndMinutes = timeToMinutes(slotEnd);
+    const slotStartMinutes = timeToMinutes(slotStart);
+    const slotEndMinutes = timeToMinutes(slotEnd);
+    const dateStr = format(date, 'yyyy-MM-dd');
+
+    // Check conflicts with bookings (bookings are already filtered for the selected date)
+    const conflictsWithBooking = bookings.some(booking => {
       const bookingStartMinutes = timeToMinutes(booking.start_time);
       const bookingEndMinutes = timeToMinutes(booking.end_time);
-
       // Check for overlap: slot overlaps if it starts before booking ends AND ends after booking starts
       return slotStartMinutes < bookingEndMinutes && slotEndMinutes > bookingStartMinutes;
     });
+
+    // Check conflicts with blocked time slots for this date
+    const conflictsWithBlockedSlot = blockedTimeSlots.some(blockedSlot => {
+      if (blockedSlot.date !== dateStr) return false;
+      const blockedStartMinutes = timeToMinutes(blockedSlot.start_time);
+      const blockedEndMinutes = timeToMinutes(blockedSlot.end_time);
+      // Check for overlap: slot overlaps if it starts before blocked slot ends AND ends after blocked slot starts
+      return slotStartMinutes < blockedEndMinutes && slotEndMinutes > blockedStartMinutes;
+    });
+
+    return conflictsWithBooking || conflictsWithBlockedSlot;
   };
 
   // Hebrew day names
@@ -868,7 +901,7 @@ export default function Home() {
                     ) : (
                       timeSlots.map((slot) => {
                         const isSelected = selectedTime === slot.key;
-                        const isBlocked = isTimeSlotBlocked(slot.start, slot.end);
+                        const isBlocked = selectedDate ? isTimeSlotBlocked(slot.start, slot.end, selectedDate) : false;
                         
                         return (
                           <button
