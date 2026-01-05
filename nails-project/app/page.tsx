@@ -68,18 +68,19 @@ export default function Home() {
 
   const selectedServiceData = services.find(s => s.id === selectedService);
 
-  // Fetch blocked dates and time slots on component mount
+  // Fetch blocked dates on component mount
   useEffect(() => {
     fetchBlockedDates();
-    fetchBlockedTimeSlots();
   }, []);
 
-  // Fetch bookings from Supabase when date is selected
+  // Fetch bookings and blocked time slots when date is selected
   useEffect(() => {
     if (selectedDate) {
       fetchBookings(selectedDate);
+      fetchBlockedTimeSlotsForDate(selectedDate);
     } else {
       setBookings([]);
+      setBlockedTimeSlots([]);
     }
   }, [selectedDate]);
 
@@ -102,21 +103,24 @@ export default function Home() {
     }
   };
 
-  const fetchBlockedTimeSlots = async () => {
+  const fetchBlockedTimeSlotsForDate = async (date: Date) => {
     try {
+      const dateStr = format(date, 'yyyy-MM-dd');
       const { data, error } = await supabase
         .from('blocked_time_slots')
         .select('*')
-        .order('date', { ascending: true })
+        .eq('date', dateStr)
         .order('start_time', { ascending: true });
 
       if (error) {
         console.error('Error fetching blocked time slots:', error);
+        setBlockedTimeSlots([]);
       } else {
         setBlockedTimeSlots(data || []);
       }
     } catch (error) {
       console.error('Error:', error);
+      setBlockedTimeSlots([]);
     }
   };
 
@@ -210,45 +214,117 @@ export default function Home() {
     ];
   }, [blockedDates]);
 
-  // Generate time slots based on selected service duration
-  const timeSlots = useMemo(() => {
+  // Generate available time slots dynamically based on blocked time slots and bookings
+  const availableSlots = useMemo(() => {
     if (!selectedServiceData || !selectedDate) return [];
+
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+
+    // Check if the whole day is blocked
+    const isFullDayBlocked = blockedDates.some(bd => bd.date === dateStr);
+    if (isFullDayBlocked) {
+      return [];
+    }
+
+    // Helper functions
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+
+    const formatTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    };
+
+    // Check for override start time (future: could be stored in a date_overrides table or blocked_time_slots with special flag)
+    // For now, check if there's a blocked slot starting at 00:00 or before default start - the end_time would be the override start
+    const defaultStartMinutes = 9 * 60; // 09:00 default
+    const defaultEndMinutes = 18 * 60; // 18:00 default
     
-    const slots: { start: string; end: string; key: string }[] = [];
-    const startTimeMinutes = 9 * 60; // 09:00 in minutes
-    const endTimeMinutes = 18 * 60; // 18:00 in minutes (1080 minutes)
+    // Get blocked time slots for this date, sorted by start_time
+    const dateBlockedSlots = blockedTimeSlots
+      .filter(bt => bt.date === dateStr)
+      .map(bt => ({
+        start: timeToMinutes(bt.start_time),
+        end: timeToMinutes(bt.end_time)
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    // Check for override start time (blocked slot starting at 00:00 or before default start time)
+    // The end_time of such a block becomes the effective start time
+    let effectiveStartMinutes = defaultStartMinutes;
+    const overrideBlock = dateBlockedSlots.find(bt => bt.start === 0 || bt.start < defaultStartMinutes);
+    if (overrideBlock) {
+      effectiveStartMinutes = overrideBlock.end;
+    }
+
     const duration = selectedServiceData.durationMinutes;
-    
-    // Generate back-to-back slots based on service duration
-    let currentStart = startTimeMinutes;
-    
-    while (currentStart < endTimeMinutes) {
-      const slotEnd = currentStart + duration;
-      
-      // Only include slot if it ends before or at 18:00
-      if (slotEnd <= endTimeMinutes) {
-        const formatTime = (minutes: number) => {
-          const hours = Math.floor(minutes / 60);
-          const mins = minutes % 60;
-          return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-        };
-        
-        const startTime = formatTime(currentStart);
+    const slots: { start: string; end: string; key: string }[] = [];
+
+    // Filter out override blocks from window calculation (already handled by effectiveStartMinutes)
+    const regularBlockedSlots = dateBlockedSlots.filter(bt => !(bt.start === 0 || bt.start < defaultStartMinutes));
+
+    // Build available time windows (gaps between blocked slots)
+    const availableWindows: { start: number; end: number }[] = [];
+    let currentPos = effectiveStartMinutes;
+
+    // Process regular blocked slots to find available windows
+    for (const blocked of regularBlockedSlots) {
+      // If blocked slot starts after current position, there's an available window
+      if (blocked.start > currentPos) {
+        availableWindows.push({
+          start: currentPos,
+          end: Math.min(blocked.start, defaultEndMinutes)
+        });
+      }
+      // Move current position to end of blocked slot (or later if already past)
+      currentPos = Math.max(currentPos, blocked.end);
+    }
+
+    // Add final window from last position to end of day (this handles both cases: with and without blocked slots)
+    if (currentPos < defaultEndMinutes) {
+      availableWindows.push({
+        start: currentPos,
+        end: defaultEndMinutes
+      });
+    }
+
+    // Generate slots within each available window
+    for (const window of availableWindows) {
+      let windowStart = window.start;
+
+      while (windowStart + duration <= window.end) {
+        const slotEnd = windowStart + duration;
+        const startTime = formatTime(windowStart);
         const endTime = formatTime(slotEnd);
         const key = `${startTime}-${endTime}`;
-        
-        slots.push({ start: startTime, end: endTime, key });
-        
+
+        // Safety check: ensure slot doesn't overlap with any booking
+        const overlapsWithBooking = bookings.some(booking => {
+          const bookingStart = timeToMinutes(booking.start_time);
+          const bookingEnd = timeToMinutes(booking.end_time);
+          // Check for overlap: slot overlaps if it starts before booking ends AND ends after booking starts
+          return windowStart < bookingEnd && slotEnd > bookingStart;
+        });
+
+        // Safety check: ensure slot doesn't overlap with any blocked time slot (double check)
+        const overlapsWithBlocked = dateBlockedSlots.some(blocked => {
+          return windowStart < blocked.end && slotEnd > blocked.start;
+        });
+
+        if (!overlapsWithBooking && !overlapsWithBlocked) {
+          slots.push({ start: startTime, end: endTime, key });
+        }
+
         // Next slot starts where this one ends
-        currentStart = slotEnd;
-      } else {
-        // No more slots can fit
-        break;
+        windowStart = slotEnd;
       }
     }
-    
+
     return slots;
-  }, [selectedServiceData, selectedDate]);
+  }, [selectedServiceData, selectedDate, blockedTimeSlots, blockedDates, bookings]);
 
   const formatDate = (date: Date): string => {
     return `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
@@ -260,7 +336,7 @@ export default function Home() {
 
   const getSelectedTimeSlotText = (): string => {
     if (!selectedTime) return '';
-    const selectedSlot = timeSlots.find(slot => slot.key === selectedTime);
+    const selectedSlot = availableSlots.find(slot => slot.key === selectedTime);
     return selectedSlot ? `${selectedSlot.start} - ${selectedSlot.end}` : '';
   };
 
@@ -319,7 +395,7 @@ export default function Home() {
     setSavingBooking(true);
     try {
       // Get selected time slot details
-      const selectedSlot = timeSlots.find(slot => slot.key === selectedTime);
+      const selectedSlot = availableSlots.find(slot => slot.key === selectedTime);
       if (!selectedSlot) {
         throw new Error('Selected time slot not found');
       }
@@ -894,26 +970,22 @@ export default function Home() {
                       <div className="col-span-2 text-center py-8 text-[#666666]">
                         טוען זמנים זמינים...
                       </div>
-                    ) : timeSlots.length === 0 ? (
+                    ) : availableSlots.length === 0 ? (
                       <div className="col-span-2 text-center py-8 text-[#666666]">
                         אין זמנים זמינים לתאריך זה
                       </div>
                     ) : (
-                      timeSlots.map((slot) => {
+                      availableSlots.map((slot) => {
                         const isSelected = selectedTime === slot.key;
-                        const isBlocked = selectedDate ? isTimeSlotBlocked(slot.start, slot.end, selectedDate) : false;
                         
                         return (
                           <button
                             key={slot.key}
-                            onClick={() => !isBlocked && setSelectedTime(slot.key)}
-                            disabled={isBlocked}
+                            onClick={() => setSelectedTime(slot.key)}
                             className={`
                               border rounded-lg p-4 text-center transition-all duration-200 font-medium
                               ${isSelected
                                 ? 'border-[#c9a961] border-[3px] bg-[#c9a961] text-white shadow-md'
-                                : isBlocked
-                                ? 'border-[#e0e0e0] bg-[#f5f5f5] text-[#b0b0b0] cursor-not-allowed opacity-50'
                                 : 'border-[#e0e0e0] bg-white text-[#2c2c2c] hover:bg-[#f5f5f5] hover:border-[#c9a961] hover:shadow-sm'
                               }
                             `}
@@ -921,12 +993,9 @@ export default function Home() {
                             <span className={`text-sm md:text-base transition-colors duration-200 ${
                               isSelected 
                                 ? 'text-white' 
-                                : isBlocked 
-                                ? 'text-[#b0b0b0]' 
                                 : 'text-[#2c2c2c]'
                             }`}>
                               {slot.start} - {slot.end}
-                              {isBlocked && ' (תפוס)'}
                             </span>
                           </button>
                         );
