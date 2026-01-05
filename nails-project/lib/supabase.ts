@@ -45,3 +45,9 @@ export interface Booking {
   created_at?: string;
 }
 
+export interface BlockedDate {
+  id?: string;
+  date: string;
+  created_at?: string;
+}
+

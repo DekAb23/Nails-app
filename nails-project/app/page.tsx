@@ -3,7 +3,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
-import { supabase, Booking } from '@/lib/supabase';
+import { SiWaze } from 'react-icons/si';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/dist/style.css';
+import { supabase, Booking, BlockedDate } from '@/lib/supabase';
 
 type Step = 'services' | 'calendar' | 'contact' | 'success';
 
@@ -25,6 +28,10 @@ export default function Home() {
   const [myAppointments, setMyAppointments] = useState<Booking[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [cancellingAppointmentId, setCancellingAppointmentId] = useState<string | null>(null);
+  
+  // Blocked dates state
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
+  const [loadingBlockedDates, setLoadingBlockedDates] = useState(false);
 
   const services = [
     {
@@ -59,6 +66,11 @@ export default function Home() {
 
   const selectedServiceData = services.find(s => s.id === selectedService);
 
+  // Fetch blocked dates on component mount
+  useEffect(() => {
+    fetchBlockedDates();
+  }, []);
+
   // Fetch bookings from Supabase when date is selected
   useEffect(() => {
     if (selectedDate) {
@@ -67,6 +79,25 @@ export default function Home() {
       setBookings([]);
     }
   }, [selectedDate]);
+
+  const fetchBlockedDates = async () => {
+    setLoadingBlockedDates(true);
+    try {
+      const { data, error } = await supabase
+        .from('blocked_dates')
+        .select('*');
+
+      if (error) {
+        console.error('Error fetching blocked dates:', error);
+      } else {
+        setBlockedDates(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setLoadingBlockedDates(false);
+    }
+  };
 
   const fetchBookings = async (date: Date) => {
     setLoadingBookings(true);
@@ -121,25 +152,29 @@ export default function Home() {
     'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
   ];
 
-  // Generate available dates (next 30 days, Sunday-Thursday only)
-  const availableDates = useMemo(() => {
-    const dates: Date[] = [];
+  // Prepare disabled dates for DayPicker
+  const disabledDates = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    for (let i = 0; i < 30; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      const dayOfWeek = date.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
-      
-      // Only include Sunday (0) through Thursday (4)
-      if (dayOfWeek >= 0 && dayOfWeek <= 4) {
-        dates.push(date);
-      }
-    }
+    const maxDate = new Date();
+    maxDate.setMonth(maxDate.getMonth() + 2); // 2 months ahead
+    maxDate.setHours(23, 59, 59, 999);
     
-    return dates;
-  }, []);
+    const blockedDateObjects: Date[] = blockedDates.map(bd => {
+      const date = new Date(bd.date + 'T00:00:00');
+      date.setHours(0, 0, 0, 0);
+      return date;
+    });
+
+    // Combine matchers and blocked dates
+    return [
+      { before: today }, // Disable past dates
+      { after: maxDate }, // Disable dates beyond 2 months
+      { dayOfWeek: [5, 6] }, // Disable Friday (5) and Saturday (6)
+      ...blockedDateObjects // Disable blocked dates
+    ];
+  }, [blockedDates]);
 
   // Generate time slots based on selected service duration
   const timeSlots = useMemo(() => {
@@ -580,7 +615,7 @@ export default function Home() {
         <div className="relative px-4 py-12 md:py-16 flex flex-col items-center justify-center min-h-[60vh] md:min-h-[70vh]">
           {/* White Rounded Box with Logo/Name */}
           <div className="bg-white rounded-2xl shadow-xl px-8 py-10 md:px-12 md:py-14 mb-8 max-w-md w-full text-center">
-            <h1 className="text-4xl md:text-5xl font-bold tracking-wide text-[#2c2c2c] mb-4">
+            <h1 className="text-4xl md:text-5xl font-playfair font-medium tracking-[0.1em] text-[#2c2c2c] mb-4" style={{ fontFamily: 'var(--font-playfair)' }}>
               ADAR COSMETICS
           </h1>
             
@@ -601,7 +636,7 @@ export default function Home() {
               href="https://wa.me/972508917748"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#25D366] hover:bg-[#20BA5A] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110"
+              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#25D366] hover:bg-[#20BA5A] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
               aria-label="WhatsApp"
             >
               <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -612,7 +647,7 @@ export default function Home() {
             {/* Call Button */}
             <a
               href="tel:0508917748"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#c9a961] hover:bg-[#b8964f] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110"
+              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#c9a961] hover:bg-[#b8964f] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
               aria-label="Call"
             >
               <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -620,17 +655,15 @@ export default function Home() {
               </svg>
             </a>
             
-            {/* Navigate Button */}
+            {/* Navigate Button - Waze */}
             <a
               href="https://waze.com/ul?q=מור 5, אור עקיבא"
-            target="_blank"
-            rel="noopener noreferrer"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#333333] hover:bg-[#252525] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110"
-              aria-label="Navigate"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#33CCFF] hover:bg-[#2BB8E6] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
+              aria-label="Navigate with Waze"
             >
-              <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-              </svg>
+              <SiWaze className="w-7 h-7 md:w-8 md:h-8 text-white" />
             </a>
           </div>
         </div>
@@ -713,36 +746,108 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Date Selection */}
+              {/* Date Selection - Calendar */}
               <div className="space-y-4">
                 <h2 className="text-xl font-medium text-[#2c2c2c]">בחר תאריך</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {availableDates.map((date) => {
-                    const isSelected = selectedDate?.getTime() === date.getTime();
-                    return (
-                      <button
-                        key={date.getTime()}
-                        onClick={() => {
-                          setSelectedDate(date);
-                          setSelectedTime(null);
-                        }}
-                        className={`
-                          border rounded-lg p-4 text-center transition-all duration-200
-                          ${isSelected
-                            ? 'border-[#c9a961] border-[3px] bg-[#c9a961] shadow-md'
-                            : 'border-[#e0e0e0] bg-white hover:bg-[#f5f5f5] hover:border-[#c9a961] hover:shadow-sm'
-                          }
-                        `}
-                      >
-                        <div className={`text-xs mb-1 transition-colors duration-200 ${isSelected ? 'text-white' : 'text-[#666666]'}`}>
-                          {formatDayOfWeek(date)}
-                        </div>
-                        <div className={`text-base font-medium transition-colors duration-200 ${isSelected ? 'text-white' : 'text-[#2c2c2c]'}`}>
-                          {formatDate(date)}
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="flex justify-center">
+                  <style jsx global>{`
+                    .rdp {
+                      --rdp-cell-size: 40px;
+                      --rdp-accent-color: #c9a961;
+                      --rdp-background-color: #f5f5f5;
+                      --rdp-outline: 2px solid var(--rdp-accent-color);
+                      --rdp-outline-selected: 2px solid var(--rdp-accent-color);
+                      margin: 0;
+                      direction: rtl;
+                    }
+                    .rdp-months {
+                      display: flex;
+                      justify-content: center;
+                    }
+                    .rdp-month {
+                      margin: 0;
+                    }
+                    .rdp-table {
+                      width: 100%;
+                      max-width: none;
+                      border-collapse: collapse;
+                    }
+                    .rdp-head_cell {
+                      font-weight: 600;
+                      font-size: 0.875rem;
+                      padding: 0.5rem;
+                      color: #666666;
+                    }
+                    .rdp-cell {
+                      width: var(--rdp-cell-size);
+                      height: var(--rdp-cell-size);
+                      position: relative;
+                    }
+                    .rdp-button {
+                      width: 100%;
+                      height: 100%;
+                      border-radius: 0.5rem;
+                      border: 1px solid transparent;
+                      background-color: transparent;
+                      color: #2c2c2c;
+                      font-size: 0.875rem;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                    }
+                    .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
+                      background-color: #f5f5f5;
+                      border-color: #c9a961;
+                    }
+                    .rdp-button[disabled] {
+                      opacity: 0.3;
+                      cursor: not-allowed;
+                      color: #b0b0b0;
+                    }
+                    .rdp-day_selected .rdp-button {
+                      background-color: var(--rdp-accent-color);
+                      color: white;
+                      font-weight: 600;
+                    }
+                    .rdp-day_today .rdp-button {
+                      font-weight: 700;
+                    }
+                    .rdp-caption {
+                      display: flex;
+                      align-items: center;
+                      justify-content: space-between;
+                      padding: 0.5rem;
+                      margin-bottom: 0.5rem;
+                    }
+                    .rdp-caption_label {
+                      font-weight: 600;
+                      font-size: 1rem;
+                      color: #2c2c2c;
+                    }
+                    .rdp-nav {
+                      display: flex;
+                      gap: 0.5rem;
+                    }
+                    .rdp-button_reset {
+                      padding: 0.25rem 0.5rem;
+                      border-radius: 0.25rem;
+                      border: 1px solid #e0e0e0;
+                      background-color: white;
+                      cursor: pointer;
+                    }
+                    .rdp-button_reset:hover {
+                      background-color: #f5f5f5;
+                    }
+                  `}</style>
+                  <DayPicker
+                    mode="single"
+                    selected={selectedDate || undefined}
+                    onSelect={(date) => {
+                      setSelectedDate(date || null);
+                      setSelectedTime(null);
+                    }}
+                    disabled={disabledDates}
+                    className="bg-white p-4 rounded-lg border border-[#e0e0e0]"
+                  />
                 </div>
               </div>
 
