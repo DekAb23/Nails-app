@@ -332,7 +332,7 @@ export default function AdminPage() {
   const stats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = formatDateToString(today);
     
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)

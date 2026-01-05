@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { SiWaze } from 'react-icons/si';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
+import { format } from 'date-fns';
 import { supabase, Booking, BlockedDate } from '@/lib/supabase';
 
 type Step = 'services' | 'calendar' | 'contact' | 'success';
@@ -43,7 +44,7 @@ export default function Home() {
     },
     {
       id: 'anatomical-gel-extended',
-      title: "מבנה אנטומי - ג'ל בנייה (מורחב)",
+      title: "בנייה חדשה בטיפס ג'ל",
       price: "250 ₪",
       duration: "150 דקות",
       durationMinutes: 150,
@@ -102,8 +103,8 @@ export default function Home() {
   const fetchBookings = async (date: Date) => {
     setLoadingBookings(true);
     try {
-      // Format date as YYYY-MM-DD
-      const dateStr = date.toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD using local time (not UTC)
+      const dateStr = format(date, 'yyyy-MM-dd');
       
       const { data, error } = await supabase
         .from('bookings')
@@ -290,8 +291,8 @@ export default function Home() {
         throw new Error('Selected time slot not found');
       }
 
-      // Format date as YYYY-MM-DD for database
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      // Format date as YYYY-MM-DD for database using local time (not UTC)
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
       // Generate cancellation token
       const cancellationToken = uuidv4();
