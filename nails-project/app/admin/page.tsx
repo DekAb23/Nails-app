@@ -464,7 +464,7 @@ export default function AdminPage() {
     const formattedDate = `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
 
     // Create WhatsApp message
-    const message = `שלום ${booking.customer_name}, התור שלך ל${booking.service_title} בתאריך ${formattedDate} בשעה ${booking.start_time} בוטל. אנא צרו קשר לקביעת תור חדש.`;
+    const message = `שלום ${booking.customer_name}, התור שלך ל${booking.service_title} בתאריך ${formattedDate} בשעה ${formatTime(booking.start_time)} בוטל. אנא צרו קשר לקביעת תור חדש.`;
     const encodedMessage = encodeURIComponent(message);
     const phoneNumber = booking.customer_phone.startsWith('0') ? booking.customer_phone.slice(1) : booking.customer_phone;
     const whatsappUrl = `https://wa.me/972${phoneNumber}?text=${encodedMessage}`;
@@ -496,9 +496,18 @@ export default function AdminPage() {
     return normalized;
   };
 
-  // Get dates with bookings for calendar indicators
-  // react-day-picker modifiers need Date objects that match calendar dates exactly
-  const datesWithBookings = useMemo(() => {
+  // Helper to format time string to HH:mm (remove seconds)
+  const formatTime = (time: string): string => {
+    if (!time) return '';
+    // If time is in format HH:mm:ss, slice to HH:mm
+    if (time.length >= 5) {
+      return time.slice(0, 5);
+    }
+    return time;
+  };
+
+  // Simple array of dates with bookings for calendar indicators
+  const bookingDates = useMemo(() => {
     const dates = new Set<string>();
     bookings.forEach(booking => {
       dates.add(booking.date);
@@ -700,37 +709,19 @@ export default function AdminPage() {
                 font-weight: 700;
                 border: 2px solid #c9a961;
               }
-              .rdp-day_has-bookings .rdp-button::after {
-                content: '';
-                position: absolute;
-                bottom: 3px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 6px;
-                height: 6px;
-                background-color: #c9a961;
-                border-radius: 50%;
+              .rdp-day_has-bookings .rdp-button {
+                background-image: radial-gradient(circle, #c9a961 2px, transparent 2px);
+                background-position: bottom center;
+                background-repeat: no-repeat;
               }
               .rdp-day_blocked .rdp-button {
-                background-color: #fee2e2 !important;
-                color: #991b1b !important;
-                opacity: 0.85;
-                position: relative;
-              }
-              .rdp-day_blocked .rdp-button::after {
-                content: '✕';
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                font-size: 14px;
-                font-weight: bold;
-                line-height: 1;
-                z-index: 1;
+                background-image: radial-gradient(circle, #fecaca 2px, transparent 2px);
+                background-position: bottom center;
+                background-repeat: no-repeat;
               }
               .rdp-day_blocked.rdp-day_selected .rdp-button {
-                background-color: #dc2626 !important;
-                color: white !important;
+                background-color: var(--rdp-accent-color);
+                color: white;
               }
               .rdp-caption {
                 display: flex;
@@ -776,11 +767,11 @@ export default function AdminPage() {
               }}
               className="bg-white"
               modifiers={{
-                hasBookings: datesWithBookings,
+                hasBooking: bookingDates,
                 blocked: blockedDateObjects
               }}
               modifiersClassNames={{
-                hasBookings: 'has-bookings',
+                hasBooking: 'has-bookings',
                 blocked: 'blocked'
               }}
             />
@@ -821,7 +812,7 @@ export default function AdminPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 md:gap-3 mb-2 flex-wrap">
                           <div className="text-xl md:text-2xl font-bold text-[#c9a961] whitespace-nowrap">
-                            {booking.start_time}
+                            {formatTime(booking.start_time)}
                           </div>
                           <div className="h-6 w-px bg-[#e0e0e0] hidden sm:block"></div>
                           <div className="min-w-0">
@@ -834,7 +825,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 md:gap-4 text-xs md:text-sm text-[#666666] mt-2 flex-wrap">
-                          <span>{booking.start_time} - {booking.end_time}</span>
+                          <span>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</span>
                           <span className="text-[#cccccc] hidden sm:inline">•</span>
                           <span className="break-all">{booking.customer_phone}</span>
                           <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${
@@ -1103,7 +1094,7 @@ export default function AdminPage() {
                             {formatDate(slot.date)}
                           </span>
                           <span className="text-sm text-[#666666]">
-                            {slot.start_time} - {slot.end_time}
+                            {formatTime(slot.start_time)} - {formatTime(slot.end_time)}
                           </span>
                         </div>
                         <button
