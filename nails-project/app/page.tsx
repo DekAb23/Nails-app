@@ -11,6 +11,13 @@ import { supabase, Booking, BlockedDate, BlockedTimeSlot } from '@/lib/supabase'
 
 type Step = 'services' | 'calendar' | 'contact' | 'success';
 
+interface Activity {
+  id: string;
+  type: 'booking_created' | 'booking_cancelled' | 'date_blocked' | 'date_unblocked';
+  message: string;
+  timestamp: Date;
+}
+
 export default function Home() {
   const [step, setStep] = useState<Step>('services');
   const [selectedService, setSelectedService] = useState<string | null>(null);
@@ -460,6 +467,23 @@ export default function Home() {
       }
 
       console.log('Booking saved successfully:', data);
+
+      // Add activity log entry
+      const addActivity = (activity: Omit<Activity, 'id' | 'timestamp'>) => {
+        const newActivity: Activity = {
+          id: Date.now().toString(),
+          ...activity,
+          timestamp: new Date()
+        };
+        const existingActivities = JSON.parse(localStorage.getItem('admin_activities') || '[]');
+        const updated = [newActivity, ...existingActivities].slice(0, 10);
+        localStorage.setItem('admin_activities', JSON.stringify(updated));
+      };
+
+      addActivity({ 
+        type: 'booking_created', 
+        message: 'תור חדש: ' + newBooking.customer_name + ' - ' + newBooking.service_title
+      });
 
       // Refresh bookings to show the new booking
       await fetchBookings(selectedDate);
