@@ -5,15 +5,9 @@ import { useRouter } from 'next/navigation';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { FaWhatsapp, FaPhone, FaTimes, FaCalendarTimes } from 'react-icons/fa';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot, logActivity, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
-interface Activity {
-  id: string;
-  type: 'booking_created' | 'booking_cancelled' | 'date_blocked' | 'date_unblocked';
-  message: string;
-  timestamp: Date;
-}
 
 // LoginForm Component
 function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
@@ -119,7 +113,7 @@ export default function AdminPage() {
   const [showBlockDatePicker, setShowBlockDatePicker] = useState(false);
   const [dateToBlock, setDateToBlock] = useState<Date | undefined>(undefined);
   const [blockingDate, setBlockingDate] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
   
   // Special Closures state
   const [specialClosureType, setSpecialClosureType] = useState<'full' | 'partial'>('full');
@@ -154,31 +148,28 @@ export default function AdminPage() {
       fetchBookings();
       fetchBlockedDates();
       fetchBlockedTimeSlots();
-      // Load activities from localStorage
-      const savedActivities = localStorage.getItem('admin_activities');
-      if (savedActivities) {
-        try {
-          const parsed = JSON.parse(savedActivities);
-          setActivities(parsed.map((a: any) => ({
-            ...a,
-            timestamp: new Date(a.timestamp)
-          })).slice(0, 10));
-        } catch (e) {
-          console.error('Error loading activities:', e);
-        }
-      }
+      fetchActivityLog();
     }
   }, [session]);
 
-  const addActivity = (activity: Omit<Activity, 'id' | 'timestamp'>) => {
-    const newActivity: Activity = {
-      id: Date.now().toString(),
-      ...activity,
-      timestamp: new Date()
-    };
-    const updated = [newActivity, ...activities].slice(0, 10);
-    setActivities(updated);
-    localStorage.setItem('admin_activities', JSON.stringify(updated));
+  const fetchActivityLog = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('activity_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(15);
+
+      if (error) {
+        console.error('Error fetching activity log:', error);
+        setActivities([]);
+      } else {
+        setActivities(data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching activity log:', error);
+      setActivities([]);
+    }
   };
 
   const formatTimeAgo = (date: Date): string => {
@@ -293,11 +284,16 @@ export default function AdminPage() {
         alert('אירעה שגיאה בהוספת חסימת זמן');
       } else {
         alert('חסימת זמן נוספה בהצלחה');
+        // Format date and time for activity log
+        const formattedDate = formatDate(dateStr);
+        const formattedTime = partialBlockStartTime.slice(0, 5); // HH:mm format
+        await logActivity('block', `חסימת שעה: השעה ${formattedTime} בתאריך ${formattedDate} נחסמה`);
         setPartialBlockDate(undefined);
         setPartialBlockStartTime('09:00');
         setPartialBlockEndTime('10:00');
         await fetchBlockedTimeSlots();
         await fetchBookings();
+        await fetchActivityLog();
       }
     } catch (error) {
       console.error('Error:', error);
@@ -322,6 +318,11 @@ export default function AdminPage() {
         console.error('Error deleting partial block:', error);
         alert('אירעה שגיאה במחיקת חסימת זמן');
       } else {
+        // Find the slot to get its details for activity log
+        const slot = blockedTimeSlots.find(s => s.id === id);
+        if (slot) {
+          await logActivity('blocked', `חסימת שעה הוסרה: ${slot.start_time}-${slot.end_time} בתאריך ${formatDate(slot.date)}`);
+        }
         await fetchBlockedTimeSlots();
         await fetchBookings();
       }
@@ -357,15 +358,13 @@ export default function AdminPage() {
           alert('אירעה שגיאה בשחרור החסימה');
         } else {
           alert('התאריך שוחרר מחסימה בהצלחה');
-          addActivity({
-            type: 'date_unblocked',
-            message: `תאריך ${formatDate(dateStr)} שוחרר מחסימה`
-          });
+          await logActivity('blocked', `חסימת יום הוסרה: ${formatDate(dateStr)}`);
           setDateToBlock(undefined);
           setShowBlockDatePicker(false);
           // Immediately refresh blocked dates to update calendar
           await fetchBlockedDates();
           await fetchBookings();
+          await fetchActivityLog();
         }
       } else {
         // Block: insert into blocked_dates table
@@ -378,15 +377,16 @@ export default function AdminPage() {
           alert('אירעה שגיאה בחסימת התאריך');
         } else {
           alert('התאריך נחסם בהצלחה');
-          addActivity({
-            type: 'date_blocked',
-            message: `תאריך ${formatDate(dateStr)} נחסם`
-          });
+          // Format date for activity log (DD/MM/YYYY)
+          const dateObj = new Date(dateStr + 'T00:00:00');
+          const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+          await logActivity('block', `חסימת יום מלא: התאריך ${formattedDate} נחסם לקבלת קהל`);
           setDateToBlock(undefined);
           setShowBlockDatePicker(false);
           // Immediately refresh blocked dates to update calendar
           await fetchBlockedDates();
           await fetchBookings();
+          await fetchActivityLog();
         }
       }
     } catch (error) {
@@ -412,12 +412,10 @@ export default function AdminPage() {
         console.error('Error unblocking date:', error);
         alert('אירעה שגיאה בהסרת החסימה');
       } else {
-        addActivity({
-          type: 'date_unblocked',
-          message: `תאריך ${formatDate(dateStr)} שוחרר מחסימה`
-        });
-        fetchBlockedDates();
-        fetchBookings();
+        await logActivity('blocked', `חסימת יום הוסרה: ${formatDate(dateStr)}`);
+        await fetchActivityLog();
+        await fetchBlockedDates();
+        await fetchBookings();
       }
     } catch (error) {
       console.error('Error:', error);
@@ -447,12 +445,14 @@ export default function AdminPage() {
       .from('bookings')
       .update({ status: 'cancelled' })
       .eq('id', booking.id)
-      .then(() => {
-        addActivity({
-          type: 'booking_cancelled',
-          message: `תור של ${booking.customer_name} בוטל`
-        });
-        fetchBookings();
+      .then(async () => {
+        // Format date and time for activity log
+        const dateObj = new Date(booking.date + 'T00:00:00');
+        const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+        const formattedTime = booking.start_time ? booking.start_time.slice(0, 5) : ''; // HH:mm format
+        await logActivity('cancel', `בוטל תור: ${booking.customer_name} שהיה קבוע ל-${formattedDate} בשעה ${formattedTime}`);
+        await fetchBookings();
+        await fetchActivityLog();
       });
 
     // Format date for message
@@ -835,6 +835,11 @@ export default function AdminPage() {
                           }`}>
                             {booking.status === 'confirmed' ? 'מאושר' : 'ממתין'}
                           </span>
+                          {booking.is_verified === false && (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs whitespace-nowrap font-medium">
+                              ⚠️ NOT VERIFIED
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 flex-shrink-0">
@@ -930,28 +935,101 @@ export default function AdminPage() {
 
         {/* Recent Activity Feed */}
         <div className="mt-6 bg-white rounded-2xl shadow-xl p-4 md:p-6">
-          <h3 className="text-xl md:text-2xl font-bold text-[#2c2c2c] mb-4">פעילות אחרונה</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl md:text-2xl font-bold text-[#2c2c2c]">פעילות אחרונה</h3>
+            <button
+              onClick={fetchActivityLog}
+              className="px-3 py-1.5 text-sm bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              title="רענן"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              רענן
+            </button>
+          </div>
           {activities.length === 0 ? (
             <p className="text-[#666666] text-center py-4">אין פעילות להצגה</p>
           ) : (
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {activities.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-3 p-3 bg-[#f5f5f5] rounded-lg hover:bg-[#eeeeee] transition-colors"
-                >
-                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                    activity.type === 'booking_created' ? 'bg-green-500' :
-                    activity.type === 'booking_cancelled' ? 'bg-red-500' :
-                    activity.type === 'date_blocked' ? 'bg-orange-500' :
-                    'bg-blue-500'
-                  }`}></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm md:text-base text-[#2c2c2c]">{activity.message}</div>
-                    <div className="text-xs text-[#666666] mt-1">{formatTimeAgo(activity.timestamp)}</div>
+              {activities.map((activity) => {
+                // Determine activity type for styling
+                const activityType = activity.type;
+                const isNewBooking = activityType === 'new_booking';
+                const isVerified = activityType === 'verified';
+                const isCancelled = activityType === 'cancelled';
+                const isBlocked = activityType === 'blocked';
+                
+                // Check if this is a new booking that hasn't been verified
+                let isUnverified = false;
+                if (isNewBooking && activity.description.includes('תור חדש')) {
+                  // Extract customer name from description (format: "תור חדש: [name] ל-[service]")
+                  const match = activity.description.match(/תור חדש:\s*(.+?)\s*ל-/);
+                  if (match) {
+                    const customerName = match[1].trim();
+                    // Check if there's an unverified booking with this customer name
+                    const unverifiedBooking = bookings.find(
+                      b => b.customer_name === customerName && b.is_verified === false
+                    );
+                    isUnverified = !!unverifiedBooking;
+                  }
+                }
+                
+                // Check if it's a recognized customer (זיהוי חוזר)
+                const isRecognizedCustomer = activity.description.includes('זיהוי חוזר');
+                
+                // Get icon and color based on type
+                const getActivityIcon = () => {
+                  if (isNewBooking) return '📅';
+                  if (isVerified) return '✅';
+                  if (isCancelled) return '❌';
+                  if (isBlocked) return '🚫';
+                  return '📝';
+                };
+
+                const getActivityColor = () => {
+                  if (isNewBooking || isVerified) return 'text-green-600';
+                  if (isCancelled) return 'text-red-600';
+                  if (isBlocked) return 'text-orange-600';
+                  return 'text-blue-600';
+                };
+
+                const getActivityBgColor = () => {
+                  if (isNewBooking || isVerified) return 'bg-green-50 border-green-200';
+                  if (isCancelled) return 'bg-red-50 border-red-200';
+                  if (isBlocked) return 'bg-orange-50 border-orange-200';
+                  return 'bg-blue-50 border-blue-200';
+                };
+                
+                return (
+                  <div
+                    key={activity.id}
+                    className={`flex items-start gap-3 p-3 rounded-lg hover:opacity-90 transition-all border ${getActivityBgColor()}`}
+                  >
+                    <div className={`text-xl flex-shrink-0 ${getActivityColor()}`}>
+                      {getActivityIcon()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className={`text-sm md:text-base font-medium ${getActivityColor()}`}>
+                          {activity.description}
+                        </div>
+                        {isUnverified && (
+                          <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded whitespace-nowrap">
+                            ⚠️ NOT VERIFIED
+                          </span>
+                        )}
+                        {isRecognizedCustomer && (
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded whitespace-nowrap">
+                            👤 Recognized Customer
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[#666666] mt-1">{formatTimeAgo(new Date(activity.created_at))}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

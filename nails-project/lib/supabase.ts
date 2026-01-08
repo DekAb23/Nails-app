@@ -42,6 +42,8 @@ export interface Booking {
   customer_phone: string;
   cancellation_token?: string;
   status?: string;
+  is_verified?: boolean;
+  verification_code?: string;
   created_at?: string;
 }
 
@@ -59,3 +61,10 @@ export interface BlockedTimeSlot {
   created_at?: string;
 }
 
+// Shared function to log activities to activity_log table
+export const logActivity = async (type: string, description: string) => {
+  const { error } = await supabase
+    .from('activity_log')
+    .insert([{ type, description }]);
+  if (error) console.error('Error logging activity:', error);
+};

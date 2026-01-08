@@ -7,9 +7,9 @@ import { SiWaze } from 'react-icons/si';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot, logActivity } from '@/lib/supabase';
 
-type Step = 'services' | 'calendar' | 'contact' | 'success';
+type Step = 'services' | 'calendar' | 'contact' | 'verification' | 'success';
 
 interface Activity {
   id: string;
@@ -29,6 +29,12 @@ export default function Home() {
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [savingBooking, setSavingBooking] = useState(false);
   const [cancellationLink, setCancellationLink] = useState<string | null>(null);
+  
+  // Verification state
+  const [verificationCode, setVerificationCode] = useState<string>('');
+  const [currentBookingId, setCurrentBookingId] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState<string>('');
   
   // My Appointments Modal State
   const [showMyAppointments, setShowMyAppointments] = useState(false);
@@ -356,6 +362,10 @@ export default function Home() {
   const handleBack = () => {
     if (step === 'contact') {
       setStep('calendar');
+    } else if (step === 'verification') {
+      setStep('contact');
+      setVerificationCode('');
+      setVerificationError('');
     } else if (step === 'success') {
       setStep('services');
       setSelectedService(null);
@@ -364,6 +374,8 @@ export default function Home() {
       setCustomerName('');
       setCustomerPhone('');
       setCancellationLink(null);
+      setCurrentBookingId(null);
+      setVerificationCode('');
     } else {
       setStep('services');
       setSelectedDate(null);
@@ -415,6 +427,26 @@ export default function Home() {
 
       // Prepare booking data
       const customerPhoneDigits = customerPhone.replace(/\D/g, '');
+      
+      // Check if user is trusted (has verified before on this device)
+      const trustedKey = `trusted_user_${customerPhoneDigits}`;
+      const isTrusted = localStorage.getItem(trustedKey) !== null;
+      
+      let verificationCode = '';
+      let isVerified = false;
+      
+      if (isTrusted) {
+        // Trusted user - skip verification
+        isVerified = true;
+        console.log('Trusted user detected, skipping verification');
+      } else {
+        // New user - generate verification code
+        verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+        // TODO: Replace console.log with SMS4FREE API call here
+        console.log('Generated verification code:', verificationCode); // Dev mode logging
+        isVerified = false;
+      }
+
       const newBooking: Omit<Booking, 'id' | 'created_at'> = {
         service_id: selectedServiceData.id,
         service_title: selectedServiceData.title,
@@ -426,6 +458,8 @@ export default function Home() {
         customer_phone: customerPhoneDigits,
         cancellation_token: cancellationToken,
         status: 'confirmed',
+        is_verified: isVerified,
+        verification_code: verificationCode || null,
       };
 
       // Log what we're sending
@@ -468,28 +502,36 @@ export default function Home() {
 
       console.log('Booking saved successfully:', data);
 
-      // Add activity log entry
-      const addActivity = (activity: Omit<Activity, 'id' | 'timestamp'>) => {
-        const newActivity: Activity = {
-          id: Date.now().toString(),
-          ...activity,
-          timestamp: new Date()
-        };
-        const existingActivities = JSON.parse(localStorage.getItem('admin_activities') || '[]');
-        const updated = [newActivity, ...existingActivities].slice(0, 10);
-        localStorage.setItem('admin_activities', JSON.stringify(updated));
-      };
-
-      addActivity({ 
-        type: 'booking_created', 
-        message: 'תור חדש: ' + newBooking.customer_name + ' - ' + newBooking.service_title
-      });
-
-      // Refresh bookings to show the new booking
-      await fetchBookings(selectedDate);
-
-      // Move to success step
-      setStep('success');
+      if (data?.id) {
+        // Format date and time for activity log
+        const formattedDate = format(selectedDate, 'dd/MM/yyyy');
+        const formattedTime = selectedSlot.start.slice(0, 5); // HH:mm format
+        
+        // Add activity log entries
+        if (isTrusted) {
+          // Trusted user - log as recognized customer
+          await logActivity('verified', `לקוחה מוכרת חזרה: ${customerName.trim()} (זוהתה ללא SMS)`);
+          await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
+          
+          // Refresh bookings
+          if (selectedDate) {
+            await fetchBookings(selectedDate);
+          }
+          
+          setStep('success');
+        } else {
+          // New user - log as new booking
+          await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
+          
+          // Go to verification step
+          setCurrentBookingId(data.id);
+          setStep('verification');
+        }
+      } else {
+        alert('אירעה שגיאה בשמירת התור. נא לנסות שוב.');
+        setSavingBooking(false);
+        return;
+      }
     } catch (error: any) {
       console.error('=== GENERAL ERROR IN BOOKING PROCESS ===');
       console.error('Error type:', error?.constructor?.name);
@@ -502,6 +544,91 @@ export default function Home() {
       alert(`אירעה שגיאה בתהליך ההזמנה:\n${errorMsg}\n\nנא לבדוק את הקונסול לפרטים נוספים.`);
     } finally {
       setSavingBooking(false);
+    }
+  };
+
+  const handleVerification = async () => {
+    if (!currentBookingId || !verificationCode) {
+      setVerificationError('אנא הכנס קוד אימות');
+      return;
+    }
+
+    if (verificationCode.length !== 4) {
+      setVerificationError('קוד אימות חייב להיות 4 ספרות');
+      return;
+    }
+
+    setVerifying(true);
+    setVerificationError('');
+
+    try {
+      // Fetch the booking to check verification code
+      const { data: booking, error: fetchError } = await supabase
+        .from('bookings')
+        .select('verification_code, is_verified')
+        .eq('id', currentBookingId)
+        .single();
+
+      if (fetchError || !booking) {
+        setVerificationError('אירעה שגיאה באימות הקוד. נא לנסות שוב.');
+        setVerifying(false);
+        return;
+      }
+
+      // Check if code matches
+      if (booking.verification_code !== verificationCode) {
+        setVerificationError('קוד אימות שגוי. נא לנסות שוב.');
+        setVerifying(false);
+        return;
+      }
+
+      // Update booking to verified
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update({ is_verified: true })
+        .eq('id', currentBookingId);
+
+      if (updateError) {
+        setVerificationError('אירעה שגיאה באימות התור. נא לנסות שוב.');
+        setVerifying(false);
+        return;
+      }
+
+      // Mark user as trusted in localStorage
+      const customerPhoneDigits = customerPhone.replace(/\D/g, '');
+      const trustedKey = `trusted_user_${customerPhoneDigits}`;
+      localStorage.setItem(trustedKey, 'true');
+
+      // Get booking details for activity log
+      const { data: bookingData } = await supabase
+        .from('bookings')
+        .select('date, start_time')
+        .eq('id', currentBookingId)
+        .single();
+
+      if (bookingData) {
+        const formattedDate = format(new Date(bookingData.date + 'T00:00:00'), 'dd/MM/yyyy');
+        const formattedTime = bookingData.start_time.slice(0, 5); // HH:mm format
+        
+        // Add activity log entry
+        await logActivity('verified', `תור אומת: ${customerName.trim()} ל-${selectedServiceData?.title}`);
+        await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData?.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
+      }
+
+      // Refresh bookings
+      if (selectedDate) {
+        await fetchBookings(selectedDate);
+      }
+
+      // Move to success step
+      setStep('success');
+      setVerificationCode('');
+      setCurrentBookingId(null);
+    } catch (error: any) {
+      console.error('Verification error:', error);
+      setVerificationError('אירעה שגיאה בתהליך האימות. נא לנסות שוב.');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -548,6 +675,13 @@ export default function Home() {
 
     setCancellingAppointmentId(bookingId);
     try {
+      // Fetch booking details first for activity log
+      const { data: booking } = await supabase
+        .from('bookings')
+        .select('customer_name, date, start_time')
+        .eq('id', bookingId)
+        .single();
+
       const { error } = await supabase
         .from('bookings')
         .update({ status: 'cancelled' })
@@ -557,6 +691,15 @@ export default function Home() {
         console.error('Error cancelling appointment:', error);
         alert('אירעה שגיאה בביטול התור. נא לנסות שוב.');
       } else {
+        // Add activity log entry
+        if (booking && booking.date && booking.start_time) {
+          const formattedDate = format(new Date(booking.date + 'T00:00:00'), 'dd/MM/yyyy');
+          const formattedTime = booking.start_time.slice(0, 5); // HH:mm format
+          await logActivity('cancel', `בוטל תור: ${booking.customer_name} שהיה קבוע ל-${formattedDate} בשעה ${formattedTime}`);
+        } else if (booking) {
+          await logActivity('cancel', `בוטל תור: ${booking.customer_name}`);
+        }
+
         alert('התור בוטל בהצלחה');
         // Refresh the appointments list
         const phoneDigits = appointmentsPhone.replace(/\D/g, '');
@@ -1141,6 +1284,86 @@ export default function Home() {
                   >
                     {savingBooking ? 'שומר תור...' : 'אישור וקביעת תור בוואטסאפ'}
                   </button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : step === 'verification' ? (
+          <>
+            {/* Verification Step */}
+            <div className="space-y-8">
+              {/* Back Button */}
+              <button
+                onClick={handleBack}
+                className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2"
+              >
+                <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                חזרה
+              </button>
+
+              {/* Verification Form */}
+              <div className="flex items-center justify-center min-h-[50vh]">
+                <div className="bg-white rounded-2xl shadow-xl p-8 md:p-12 max-w-md w-full">
+                  <div className="space-y-6 text-center">
+                    {/* Verification Icon */}
+                    <div className="flex justify-center">
+                      <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center">
+                        <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Verification Message */}
+                    <div className="space-y-3">
+                      <h2 className="text-2xl md:text-3xl font-bold text-[#2c2c2c]">הזן את קוד האימות</h2>
+                      <p className="text-base text-[#666666]">
+                        קוד האימות נשלח אליך. אנא הכנס את הקוד לאימות התור.
+                      </p>
+                    </div>
+
+                    {/* Verification Code Input */}
+                    <div className="space-y-4">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={4}
+                        value={verificationCode}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '');
+                          setVerificationCode(value);
+                          setVerificationError('');
+                        }}
+                        placeholder="0000"
+                        className="w-full border-2 border-[#e0e0e0] rounded-lg px-6 py-4 text-center text-2xl font-bold text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200 tracking-widest"
+                        dir="ltr"
+                        autoFocus
+                      />
+                      {verificationError && (
+                        <p className="text-sm text-red-500">{verificationError}</p>
+                      )}
+                    </div>
+
+                    {/* Verify Button */}
+                    <div className="pt-4">
+                      <button
+                        onClick={handleVerification}
+                        disabled={verifying || verificationCode.length !== 4}
+                        className={`
+                          w-full px-10 py-4 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-base
+                          ${verifying || verificationCode.length !== 4
+                            ? 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed'
+                            : 'bg-[#c9a961] hover:bg-[#b8964f] text-white'
+                          }
+                        `}
+                      >
+                        {verifying ? 'מאמת...' : 'אמת תור'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

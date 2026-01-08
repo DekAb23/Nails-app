@@ -1,0 +1,7 @@
+﻿// Shared function to log activities to activity_log table
+export const logActivity = async (type: string, description: string) => {
+  const { error } = await supabase
+    .from('activity_log')
+    .insert([{ type, description }]);
+  if (error) console.error('Error logging activity:', error);
+};
