@@ -1,4 +1,4 @@
-﻿import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 // Get environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -7,8 +7,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 // Debug logging (only in development)
 if (process.env.NODE_ENV === 'development') {
   console.log('Supabase Config Check:');
-  console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'ג“ Set' : 'ג— Missing');
-  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'ג“ Set' : 'ג— Missing');
+  console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? '✓ Set' : '✗ Missing');
+  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✓ Set' : '✗ Missing');
 }
 
 // Check if environment variables are set
@@ -29,7 +29,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export interface Booking {
   id?: string;
-  service_id: string;
+  service_id?: string;
   service_title: string;
   service_duration: number;
   date: string;
@@ -59,17 +59,17 @@ export interface BlockedTimeSlot {
 }
 
 export interface ActivityLog {
-  id: string;
+  id?: string;
   created_at: string;
-  type: string;
-  description: string;
+  action: string;
+  details: string;
   metadata?: any;
 }
 
 // Shared function to log activities to activity_log table
-export const logActivity = async (type: string, description: string) => {
+export const logActivity = async (action: string, details: string) => {
   const { error } = await supabase
     .from('activity_log')
-    .insert([{ type, description }]);
+    .insert([{ action, details }]);
   if (error) console.error('Error logging activity:', error);
 };

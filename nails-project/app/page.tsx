@@ -546,7 +546,7 @@ export default function Home() {
         const formattedTime = selectedSlot.start.slice(0, 5); // HH:mm format
         
         // Add activity log entries
-        if (isTrusted) {
+        if (hasActiveSession) {
           // Trusted user - log as recognized customer
           await logActivity('verified', `לקוחה מוכרת חזרה: ${customerName.trim()} (זוהתה ללא SMS)`);
           await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
