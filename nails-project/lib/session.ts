@@ -1,7 +1,8 @@
 // Session management for verified phone numbers
 // Uses localStorage with a session key that includes phone number for security
 
-const SESSION_PREFIX = 'verified_session_';
+const SESSION_PREFIX = 'adar_nails_session_v1_';
+const TRUSTED_USER_PREFIX = 'adar_nails_trusted_v1_';
 const SESSION_EXPIRY_HOURS = 24; // Sessions expire after 24 hours
 
 export interface VerifiedSession {
@@ -65,7 +66,7 @@ export function createVerifiedSession(phone: string): void {
     localStorage.setItem(sessionKey, JSON.stringify(session));
     
     // Also update the trusted_user key for backward compatibility
-    const trustedKey = `trusted_user_${phoneDigits}`;
+    const trustedKey = `${TRUSTED_USER_PREFIX}${phoneDigits}`;
     localStorage.setItem(trustedKey, 'true');
   } catch (error) {
     console.error('Error creating session:', error);
@@ -82,7 +83,7 @@ export function clearVerifiedSession(phone: string): void {
     localStorage.removeItem(sessionKey);
     
     // Also clear the trusted_user key
-    const trustedKey = `trusted_user_${phoneDigits}`;
+    const trustedKey = `${TRUSTED_USER_PREFIX}${phoneDigits}`;
     localStorage.removeItem(trustedKey);
   } catch (error) {
     console.error('Error clearing session:', error);
@@ -96,7 +97,7 @@ export function clearAllSessions(): void {
   try {
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
-      if (key.startsWith(SESSION_PREFIX) || key.startsWith('trusted_user_')) {
+      if (key.startsWith(SESSION_PREFIX) || key.startsWith(TRUSTED_USER_PREFIX)) {
         localStorage.removeItem(key);
       }
     });
