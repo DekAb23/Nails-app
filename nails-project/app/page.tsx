@@ -442,8 +442,28 @@ export default function Home() {
       } else {
         // New user - generate verification code
         verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
-        // TODO: Replace console.log with SMS4FREE API call here
-        console.log('Generated verification code:', verificationCode); // Dev mode logging
+        
+        // Send SMS via API route (server-side)
+        try {
+          const smsResponse = await fetch('/api/sms', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              phone: customerPhoneDigits,
+              code: verificationCode,
+              customerName: customerName.trim(),
+            }),
+          });
+          
+          if (!smsResponse.ok) {
+            console.error('Failed to send SMS:', await smsResponse.text());
+          }
+        } catch (error) {
+          console.error('Error sending SMS:', error);
+        }
+        
         isVerified = false;
       }
 
