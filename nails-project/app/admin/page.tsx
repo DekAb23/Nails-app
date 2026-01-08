@@ -156,14 +156,16 @@ export default function AdminPage() {
     try {
       const { data, error } = await supabase
         .from('activity_log')
-        .select('*')
+        .select('id, type, description, created_at')
         .order('created_at', { ascending: false })
         .limit(15);
 
       if (error) {
         console.error('Error fetching activity log:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
         setActivities([]);
       } else {
+        console.log('Fetched activities:', data?.length || 0, 'items');
         setActivities(data || []);
       }
     } catch (error) {
@@ -954,7 +956,7 @@ export default function AdminPage() {
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
               {activities.map((activity) => {
                 // Determine activity type for styling
-                const activityType = activity.action;
+                const activityType = activity.type;
                 const isNewBooking = activityType === 'new_booking';
                 const isVerified = activityType === 'verified';
                 const isCancelled = activityType === 'cancelled';
@@ -962,9 +964,9 @@ export default function AdminPage() {
                 
                 // Check if this is a new booking that hasn't been verified
                 let isUnverified = false;
-                if (isNewBooking && activity.details.includes('תור חדש')) {
-                  // Extract customer name from details (format: "תור חדש: [name] ל-[service]")
-                  const match = activity.details.match(/תור חדש:\s*(.+?)\s*ל-/);
+                if (isNewBooking && activity.description.includes('תור חדש')) {
+                  // Extract customer name from description (format: "תור חדש: [name] ל-[service]")
+                  const match = activity.description.match(/תור חדש:\s*(.+?)\s*ל-/);
                   if (match) {
                     const customerName = match[1].trim();
                     // Check if there's an unverified booking with this customer name
@@ -976,7 +978,7 @@ export default function AdminPage() {
                 }
                 
                 // Check if it's a recognized customer (זיהוי חוזר)
-                const isRecognizedCustomer = activity.details.includes('זיהוי חוזר');
+                const isRecognizedCustomer = activity.description.includes('זיהוי חוזר');
                 
                 // Get icon and color based on type
                 const getActivityIcon = () => {
@@ -1012,7 +1014,7 @@ export default function AdminPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className={`text-sm md:text-base font-medium ${getActivityColor()}`}>
-                          {activity.details}
+                          {activity.description}
                         </div>
                         {isUnverified && (
                           <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded whitespace-nowrap">

@@ -59,17 +59,17 @@ export interface BlockedTimeSlot {
 }
 
 export interface ActivityLog {
-  id?: string;
+  id: string;
   created_at: string;
-  action: string;
-  details: string;
+  type: string;
+  description: string;
   metadata?: any;
 }
 
 // Shared function to log activities to activity_log table
-export const logActivity = async (action: string, details: string) => {
+export const logActivity = async (type: string, description: string) => {
   const { error } = await supabase
     .from('activity_log')
-    .insert([{ action, details }]);
+    .insert([{ type, description }]);
   if (error) console.error('Error logging activity:', error);
 };
