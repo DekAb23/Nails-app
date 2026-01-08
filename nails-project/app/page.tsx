@@ -8,6 +8,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
 import { supabase, Booking, BlockedDate, BlockedTimeSlot, logActivity } from '@/lib/supabase';
+import { isPhoneVerified, createVerifiedSession, clearAllSessions, getAllVerifiedPhones } from '@/lib/session';
 
 type Step = 'services' | 'calendar' | 'contact' | 'verification' | 'success';
 
@@ -42,6 +43,11 @@ export default function Home() {
   const [myAppointments, setMyAppointments] = useState<Booking[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [cancellingAppointmentId, setCancellingAppointmentId] = useState<string | null>(null);
+  const [appointmentsVerified, setAppointmentsVerified] = useState(false);
+  const [appointmentsVerificationCode, setAppointmentsVerificationCode] = useState<string>('');
+  const [appointmentsVerifying, setAppointmentsVerifying] = useState(false);
+  const [appointmentsVerificationError, setAppointmentsVerificationError] = useState<string>('');
+  const [appointmentsNeedsVerification, setAppointmentsNeedsVerification] = useState(false);
   
   // Blocked dates state
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
@@ -85,6 +91,19 @@ export default function Home() {
   useEffect(() => {
     fetchBlockedDates();
   }, []);
+
+  // Auto-load appointments when modal opens if user has active session
+  useEffect(() => {
+    if (showMyAppointments) {
+      const verifiedPhones = getAllVerifiedPhones();
+      if (verifiedPhones.length > 0) {
+        // Use the first verified phone (most recent)
+        const verifiedPhone = verifiedPhones[0];
+        setAppointmentsPhone(verifiedPhone);
+        fetchMyAppointments(verifiedPhone, true);
+      }
+    }
+  }, [showMyAppointments]);
 
   // Fetch bookings and blocked time slots when date is selected
   useEffect(() => {
@@ -428,19 +447,18 @@ export default function Home() {
       // Prepare booking data
       const customerPhoneDigits = customerPhone.replace(/\D/g, '');
       
-      // Check if user is trusted (has verified before on this device)
-      const trustedKey = `trusted_user_${customerPhoneDigits}`;
-      const isTrusted = localStorage.getItem(trustedKey) !== null;
+      // Check if user has an active verified session
+      const hasActiveSession = isPhoneVerified(customerPhoneDigits);
       
       let verificationCode = '';
       let isVerified = false;
       
-      if (isTrusted) {
-        // Trusted user - skip verification
+      if (hasActiveSession) {
+        // User has active session - skip verification
         isVerified = true;
-        console.log('Trusted user detected, skipping verification');
+        console.log('Active session detected, skipping verification');
       } else {
-        // New user - generate verification code
+        // New user or expired session - generate verification code
         verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
         
         // Send SMS via API route (server-side)
@@ -582,42 +600,31 @@ export default function Home() {
     setVerificationError('');
 
     try {
-      // Fetch the booking to check verification code
-      const { data: booking, error: fetchError } = await supabase
-        .from('bookings')
-        .select('verification_code, is_verified')
-        .eq('id', currentBookingId)
-        .single();
+      const customerPhoneDigits = customerPhone.replace(/\D/g, '');
+      
+      // Use unified verification API
+      const verifyResponse = await fetch('/api/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: customerPhoneDigits,
+          code: verificationCode,
+          bookingId: currentBookingId,
+        }),
+      });
 
-      if (fetchError || !booking) {
-        setVerificationError('אירעה שגיאה באימות הקוד. נא לנסות שוב.');
-        setVerifying(false);
-        return;
-      }
+      const verifyResult = await verifyResponse.json();
 
-      // Check if code matches
-      if (booking.verification_code !== verificationCode) {
+      if (!verifyResponse.ok || !verifyResult.verified) {
         setVerificationError('קוד אימות שגוי. נא לנסות שוב.');
         setVerifying(false);
         return;
       }
 
-      // Update booking to verified
-      const { error: updateError } = await supabase
-        .from('bookings')
-        .update({ is_verified: true })
-        .eq('id', currentBookingId);
-
-      if (updateError) {
-        setVerificationError('אירעה שגיאה באימות התור. נא לנסות שוב.');
-        setVerifying(false);
-        return;
-      }
-
-      // Mark user as trusted in localStorage
-      const customerPhoneDigits = customerPhone.replace(/\D/g, '');
-      const trustedKey = `trusted_user_${customerPhoneDigits}`;
-      localStorage.setItem(trustedKey, 'true');
+      // Create verified session
+      createVerifiedSession(customerPhoneDigits);
 
       // Get booking details for activity log
       const { data: bookingData } = await supabase
@@ -652,12 +659,93 @@ export default function Home() {
     }
   };
 
-  // Fetch user's appointments by phone number
-  const fetchMyAppointments = async (phone: string) => {
+  // Fetch user's appointments by phone number (requires verification)
+  const fetchMyAppointments = async (phone: string, skipVerification = false) => {
+    const phoneDigits = phone.replace(/\D/g, '');
+    
+    // Check if user has active session
+    if (!skipVerification && !isPhoneVerified(phoneDigits)) {
+      // User needs to verify - trigger verification flow
+      setAppointmentsNeedsVerification(true);
+      setAppointmentsVerified(false);
+      
+      // Generate and send verification code
+      const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      // Create a temporary unverified booking entry for verification purposes
+      // This allows us to use the unified verification system
+      try {
+        // First, check if there's already an unverified booking we can use
+        const { data: existingBookings } = await supabase
+          .from('bookings')
+          .select('id, verification_code')
+          .eq('customer_phone', phoneDigits)
+          .eq('is_verified', false)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (existingBookings && existingBookings.length > 0) {
+          // Update existing booking with new verification code
+          await supabase
+            .from('bookings')
+            .update({ verification_code: verificationCode })
+            .eq('id', existingBookings[0].id);
+        } else {
+          // Create a temporary booking entry for verification
+          const tempDate = new Date();
+          tempDate.setDate(tempDate.getDate() + 1); // Tomorrow
+          const tempDateStr = format(tempDate, 'yyyy-MM-dd');
+          
+          await supabase
+            .from('bookings')
+            .insert([{
+              service_id: 'temp',
+              service_title: 'אימות זמני',
+              service_duration: 0,
+              date: tempDateStr,
+              start_time: '00:00',
+              end_time: '00:00',
+              customer_name: 'אימות',
+              customer_phone: phoneDigits,
+              verification_code: verificationCode,
+              is_verified: false,
+              status: 'pending',
+              cancellation_token: uuidv4(),
+            }]);
+        }
+        
+        // Send SMS
+        const smsResponse = await fetch('/api/sms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phone: phoneDigits,
+            code: verificationCode,
+            customerName: 'לקוח',
+          }),
+        });
+        
+        if (!smsResponse.ok) {
+          console.error('Failed to send SMS:', await smsResponse.text());
+          alert('אירעה שגיאה בשליחת קוד האימות. נא לנסות שוב.');
+          return;
+        }
+        
+        setAppointmentsVerificationCode(verificationCode);
+      } catch (error) {
+        console.error('Error setting up verification:', error);
+        alert('אירעה שגיאה בהגדרת האימות.');
+        return;
+      }
+      
+      return; // Don't fetch appointments yet, wait for verification
+    }
+    
+    // User is verified - fetch appointments
     setLoadingAppointments(true);
     try {
-      const phoneDigits = phone.replace(/\D/g, '');
-      
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
@@ -671,6 +759,7 @@ export default function Home() {
         alert('אירעה שגיאה בטעינת התורים. נא לנסות שוב.');
       } else {
         setMyAppointments(data || []);
+        setAppointmentsVerified(true);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -686,6 +775,53 @@ export default function Home() {
       return;
     }
     fetchMyAppointments(appointmentsPhone);
+  };
+
+  const handleAppointmentsVerification = async () => {
+    if (!appointmentsVerificationCode || appointmentsVerificationCode.length !== 4) {
+      setAppointmentsVerificationError('אנא הכנס קוד אימות בן 4 ספרות');
+      return;
+    }
+
+    setAppointmentsVerifying(true);
+    setAppointmentsVerificationError('');
+
+    try {
+      const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+      
+      // Use unified verification API
+      const verifyResponse = await fetch('/api/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: phoneDigits,
+          code: appointmentsVerificationCode,
+        }),
+      });
+
+      const verifyResult = await verifyResponse.json();
+
+      if (!verifyResponse.ok || !verifyResult.verified) {
+        setAppointmentsVerificationError('קוד אימות שגוי. נא לנסות שוב.');
+        setAppointmentsVerifying(false);
+        return;
+      }
+
+      // Create verified session
+      createVerifiedSession(phoneDigits);
+      
+      // Now fetch appointments
+      await fetchMyAppointments(phoneDigits, true);
+      setAppointmentsNeedsVerification(false);
+      setAppointmentsVerificationCode('');
+    } catch (error: any) {
+      console.error('Verification error:', error);
+      setAppointmentsVerificationError('אירעה שגיאה בתהליך האימות. נא לנסות שוב.');
+    } finally {
+      setAppointmentsVerifying(false);
+    }
   };
 
   const handleCancelAppointment = async (bookingId: string) => {
@@ -723,7 +859,7 @@ export default function Home() {
         alert('התור בוטל בהצלחה');
         // Refresh the appointments list
         const phoneDigits = appointmentsPhone.replace(/\D/g, '');
-        fetchMyAppointments(phoneDigits);
+        fetchMyAppointments(phoneDigits, true);
       }
     } catch (error) {
       console.error('Error:', error);
@@ -750,6 +886,10 @@ export default function Home() {
           setShowMyAppointments(true);
           setMyAppointments([]);
           setAppointmentsPhone('');
+          setAppointmentsVerified(false);
+          setAppointmentsNeedsVerification(false);
+          setAppointmentsVerificationCode('');
+          setAppointmentsVerificationError('');
         }}
         className="fixed top-4 left-4 md:left-6 z-50 bg-[#c9a961] hover:bg-[#b8964f] text-white px-4 py-2 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 text-sm md:text-base font-medium flex items-center gap-2"
       >
@@ -778,7 +918,72 @@ export default function Home() {
 
             {/* Modal Content */}
             <div className="flex-1 overflow-y-auto p-6">
-              {myAppointments.length === 0 && !loadingAppointments ? (
+              {appointmentsNeedsVerification ? (
+                <div className="space-y-4">
+                  <div className="text-center space-y-2">
+                    <p className="text-lg font-medium text-[#2c2c2c]">
+                      אימות נדרש
+                    </p>
+                    <p className="text-sm text-[#666666]">
+                      נשלח קוד אימות למספר {appointmentsPhone}
+                    </p>
+                  </div>
+                  
+                  {/* Verification Code Input */}
+                  <div className="space-y-2">
+                    <label htmlFor="appointments-verification-code" className="block text-sm font-medium text-[#2c2c2c]">
+                      קוד אימות
+                    </label>
+                    <input
+                      id="appointments-verification-code"
+                      type="text"
+                      value={appointmentsVerificationCode}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setAppointmentsVerificationCode(value);
+                        setAppointmentsVerificationError('');
+                      }}
+                      placeholder="0000"
+                      className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200 text-center text-2xl tracking-widest"
+                      dir="ltr"
+                      maxLength={4}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleAppointmentsVerification();
+                        }
+                      }}
+                    />
+                    {appointmentsVerificationError && (
+                      <p className="text-sm text-red-600">{appointmentsVerificationError}</p>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={handleAppointmentsVerification}
+                    disabled={appointmentsVerifying || appointmentsVerificationCode.length !== 4}
+                    className={`
+                      w-full px-4 py-3 rounded-lg font-medium transition-all duration-200
+                      ${appointmentsVerifying || appointmentsVerificationCode.length !== 4
+                        ? 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed'
+                        : 'bg-[#c9a961] hover:bg-[#b8964f] text-white'
+                      }
+                    `}
+                  >
+                    {appointmentsVerifying ? 'מאמת...' : 'אמת'}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setAppointmentsNeedsVerification(false);
+                      setAppointmentsVerificationCode('');
+                      setAppointmentsVerificationError('');
+                    }}
+                    className="w-full px-4 py-2 text-sm text-[#666666] hover:text-[#2c2c2c] transition-colors"
+                  >
+                    חזור
+                  </button>
+                </div>
+              ) : myAppointments.length === 0 && !loadingAppointments ? (
                 <div className="space-y-4">
                   {/* Phone Input */}
                   <div className="space-y-2">
@@ -794,22 +999,28 @@ export default function Home() {
                         placeholder="0501234567"
                         className="flex-1 border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
                         dir="ltr"
+                        disabled={appointmentsVerified}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
+                          if (e.key === 'Enter' && !appointmentsVerified) {
                             handleSearchAppointments();
                           }
                         }}
                       />
-                      <button
-                        onClick={handleSearchAppointments}
-                        className="px-6 py-3 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors"
-                      >
-                        חפש
-                      </button>
+                      {!appointmentsVerified && (
+                        <button
+                          onClick={handleSearchAppointments}
+                          className="px-6 py-3 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors"
+                        >
+                          חפש
+                        </button>
+                      )}
                     </div>
                   </div>
                   <p className="text-sm text-[#666666] text-center py-4">
-                    הכנס את מספר הטלפון שלך כדי לראות את התורים שלך
+                    {appointmentsVerified 
+                      ? 'לא נמצאו תורים עבור מספר הטלפון הזה'
+                      : 'הכנס את מספר הטלפון שלך כדי לראות את התורים שלך'
+                    }
                   </p>
                 </div>
               ) : loadingAppointments ? (
@@ -818,9 +1029,27 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Phone Display */}
-                  <div className="bg-[#f5f5f5] rounded-lg p-3 text-sm text-[#666666]">
-                    תורים עבור: {appointmentsPhone}
+                  {/* Phone Display with Logout */}
+                  <div className="bg-[#f5f5f5] rounded-lg p-3 flex items-center justify-between">
+                    <div className="text-sm text-[#666666]">
+                      תורים עבור: {appointmentsPhone}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+                        clearAllSessions();
+                        setMyAppointments([]);
+                        setAppointmentsPhone('');
+                        setAppointmentsVerified(false);
+                        setAppointmentsNeedsVerification(false);
+                        setAppointmentsVerificationCode('');
+                        setAppointmentsVerificationError('');
+                      }}
+                      className="text-xs text-[#c9a961] hover:text-[#b8964f] transition-colors underline"
+                      title="החלף משתמש"
+                    >
+                      החלף משתמש
+                    </button>
                   </div>
 
                   {/* Appointments List */}
@@ -875,12 +1104,18 @@ export default function Home() {
               <div className="border-t border-[#e0e0e0] p-4">
                 <button
                   onClick={() => {
+                    const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+                    clearAllSessions();
                     setMyAppointments([]);
                     setAppointmentsPhone('');
+                    setAppointmentsVerified(false);
+                    setAppointmentsNeedsVerification(false);
+                    setAppointmentsVerificationCode('');
+                    setAppointmentsVerificationError('');
                   }}
                   className="w-full px-4 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
                 >
-                  חיפוש חדש
+                  החלף משתמש / התנתק
                 </button>
               </div>
             )}

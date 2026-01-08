@@ -6,7 +6,7 @@ const SMS_API_URL = 'https://api.sms4free.co.il/ApiSMS/v2/SendSMS';
 const SMS_KEY = 'NdJLEt3aR';
 const SMS_USER = '0528842308'; // Using phone number as username
 const SMS_PASS = '63434852';
-const SMS_SENDER = '0528842308'; // Must match verified number for free plan
+const SMS_SENDER = 'AdarNails'; // Sender name as configured in SMS4FREE dashboard
 
 // Helper function to format phone number to 9725XXXXXXXX format
 function formatPhoneNumber(phone: string): string {
