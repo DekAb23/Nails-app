@@ -459,7 +459,7 @@ export default function Home() {
         cancellation_token: cancellationToken,
         status: 'confirmed',
         is_verified: isVerified,
-        verification_code: verificationCode || null,
+        verification_code: verificationCode || undefined,
       };
 
       // Log what we're sending

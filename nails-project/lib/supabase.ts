@@ -63,6 +63,7 @@ export interface ActivityLog {
   created_at: string;
   type: string;
   description: string;
+  metadata?: any;
 }
 
 // Shared function to log activities to activity_log table
