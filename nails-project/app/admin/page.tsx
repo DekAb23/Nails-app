@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { FaWhatsapp, FaPhone, FaTimes, FaCalendarTimes } from 'react-icons/fa';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot, logActivity, ActivityLog } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot, DailySchedule, logActivity, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
 
@@ -116,11 +116,12 @@ export default function AdminPage() {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   
   // Special Closures state
-  const [specialClosureType, setSpecialClosureType] = useState<'full' | 'partial'>('full');
-  const [partialBlockDate, setPartialBlockDate] = useState<Date | undefined>(undefined);
-  const [partialBlockStartTime, setPartialBlockStartTime] = useState<string>('09:00');
-  const [partialBlockEndTime, setPartialBlockEndTime] = useState<string>('10:00');
-  const [savingPartialBlock, setSavingPartialBlock] = useState(false);
+  const [specialClosureType, setSpecialClosureType] = useState<'full' | 'custom-hours'>('full');
+  const [dailySchedules, setDailySchedules] = useState<DailySchedule[]>([]);
+  const [customHoursDate, setCustomHoursDate] = useState<Date | undefined>(undefined);
+  const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
+  const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('18:00');
+  const [savingCustomHours, setSavingCustomHours] = useState(false);
 
   const checkSession = async () => {
     try {
@@ -148,6 +149,7 @@ export default function AdminPage() {
       fetchBookings();
       fetchBlockedDates();
       fetchBlockedTimeSlots();
+      fetchDailySchedules();
       fetchActivityLog();
     }
   }, [session]);
@@ -259,78 +261,122 @@ export default function AdminPage() {
     }
   };
 
-  const handleAddPartialBlock = async () => {
-    if (!partialBlockDate) {
+  const fetchDailySchedules = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('daily_schedules')
+        .select('*')
+        .order('date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching daily schedules:', error);
+      } else {
+        setDailySchedules(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  const handleSaveCustomHours = async () => {
+    if (!customHoursDate) {
       alert('אנא בחר תאריך');
       return;
     }
 
-    if (partialBlockStartTime >= partialBlockEndTime) {
-      alert('שעת התחלה חייבת להיות לפני שעת הסיום');
+    if (customHoursStartTime >= customHoursEndTime) {
+      alert('שעת פתיחה חייבת להיות לפני שעת סגירה');
       return;
     }
 
-    setSavingPartialBlock(true);
+    setSavingCustomHours(true);
     try {
-      const dateStr = formatDateToString(partialBlockDate);
-      const { error } = await supabase
-        .from('blocked_time_slots')
-        .insert([{
-          date: dateStr,
-          start_time: partialBlockStartTime,
-          end_time: partialBlockEndTime
-        }]);
+      const dateStr = formatDateToString(customHoursDate);
+      const formattedDate = formatDate(dateStr);
+      
+      // Check if schedule already exists for this date
+      const existingSchedule = dailySchedules.find(s => s.date === dateStr);
+      
+      if (existingSchedule) {
+        // Update existing schedule
+        const { error } = await supabase
+          .from('daily_schedules')
+          .update({
+            start_time: customHoursStartTime,
+            end_time: customHoursEndTime,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingSchedule.id);
 
-      if (error) {
-        console.error('Error adding partial block:', error);
-        alert('אירעה שגיאה בהוספת חסימת זמן');
+        if (error) {
+          console.error('Error updating daily schedule:', error);
+          alert('אירעה שגיאה בעדכון שעות העבודה');
+        } else {
+          alert(`שעות עבודה עודכנו: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
+          await logActivity('block', `שעות עבודה מותאמות: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
+          setCustomHoursDate(undefined);
+          setCustomHoursStartTime('09:00');
+          setCustomHoursEndTime('18:00');
+          await fetchDailySchedules();
+          await fetchBookings();
+          await fetchActivityLog();
+        }
       } else {
-        alert('חסימת זמן נוספה בהצלחה');
-        // Format date and time for activity log
-        const formattedDate = formatDate(dateStr);
-        const formattedTime = partialBlockStartTime.slice(0, 5); // HH:mm format
-        await logActivity('block', `חסימת שעה: השעה ${formattedTime} בתאריך ${formattedDate} נחסמה`);
-        setPartialBlockDate(undefined);
-        setPartialBlockStartTime('09:00');
-        setPartialBlockEndTime('10:00');
-        await fetchBlockedTimeSlots();
-        await fetchBookings();
-        await fetchActivityLog();
+        // Insert new schedule
+        const { error } = await supabase
+          .from('daily_schedules')
+          .insert([{
+            date: dateStr,
+            start_time: customHoursStartTime,
+            end_time: customHoursEndTime
+          }]);
+
+        if (error) {
+          console.error('Error adding daily schedule:', error);
+          alert('אירעה שגיאה בשמירת שעות העבודה');
+        } else {
+          alert(`שעות עבודה נשמרו: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
+          await logActivity('block', `שעות עבודה מותאמות: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
+          setCustomHoursDate(undefined);
+          setCustomHoursStartTime('09:00');
+          setCustomHoursEndTime('18:00');
+          await fetchDailySchedules();
+          await fetchBookings();
+          await fetchActivityLog();
+        }
       }
     } catch (error) {
       console.error('Error:', error);
       alert('אירעה שגיאה');
     } finally {
-      setSavingPartialBlock(false);
+      setSavingCustomHours(false);
     }
   };
 
-  const handleDeletePartialBlock = async (id: string) => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את חסימת הזמן הזו?')) {
+  const handleDeleteCustomHours = async (id: string, dateStr: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את שעות העבודה המותאמות לתאריך זה?')) {
       return;
     }
 
     try {
       const { error } = await supabase
-        .from('blocked_time_slots')
+        .from('daily_schedules')
         .delete()
         .eq('id', id);
 
       if (error) {
-        console.error('Error deleting partial block:', error);
-        alert('אירעה שגיאה במחיקת חסימת זמן');
+        console.error('Error deleting daily schedule:', error);
+        alert('אירעה שגיאה במחיקת שעות העבודה');
       } else {
-        // Find the slot to get its details for activity log
-        const slot = blockedTimeSlots.find(s => s.id === id);
-        if (slot) {
-          await logActivity('blocked', `חסימת שעה הוסרה: ${slot.start_time}-${slot.end_time} בתאריך ${formatDate(slot.date)}`);
-        }
-        await fetchBlockedTimeSlots();
+        const formattedDate = formatDate(dateStr);
+        await logActivity('blocked', `שעות עבודה מותאמות הוסרו: ${formattedDate} יחזור לשעות ברירת המחדל`);
+        await fetchDailySchedules();
         await fetchBookings();
+        await fetchActivityLog();
       }
     } catch (error) {
       console.error('Error:', error);
-      alert('אירעה שגיאה במחיקת חסימת זמן');
+      alert('אירעה שגיאה במחיקת שעות העבודה');
     }
   };
 
@@ -777,17 +823,6 @@ export default function AdminPage() {
                 blocked: 'blocked'
               }}
             />
-            
-            <div className="mt-4 pt-4 border-t border-[#e0e0e0] flex flex-wrap gap-3 text-xs md:text-sm text-[#666666]">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-[#c9a961] rounded-full"></span>
-                <span>ימים עם תורים</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-200 rounded-full"></span>
-                <span>תאריכים חסומים</span>
-              </div>
-            </div>
           </div>
 
           {/* Daily Agenda */}
@@ -1079,14 +1114,14 @@ export default function AdminPage() {
               חסימת יום מלא
             </button>
             <button
-              onClick={() => setSpecialClosureType('partial')}
+              onClick={() => setSpecialClosureType('custom-hours')}
               className={`px-4 py-2 font-medium transition-colors ${
-                specialClosureType === 'partial'
+                specialClosureType === 'custom-hours'
                   ? 'text-[#c9a961] border-b-2 border-[#c9a961]'
                   : 'text-[#666666] hover:text-[#2c2c2c]'
               }`}
             >
-              חסימת זמן חלקית
+              הגדרת שעות ליום ספציפי
             </button>
           </div>
 
@@ -1099,12 +1134,15 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Partial Block Tab */}
-          {specialClosureType === 'partial' && (
+          {/* Custom Daily Hours Tab */}
+          {specialClosureType === 'custom-hours' && (
             <div className="space-y-6">
-              {/* Add Partial Block Form */}
+              {/* Set Custom Hours Form */}
               <div className="bg-[#f5f5f5] rounded-lg p-4">
-                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">הוסף חסימת זמן</h4>
+                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-2">הגדר שעות עבודה מותאמות</h4>
+                <p className="text-sm text-[#666666] mb-4">
+                  הגדר שעות פתיחה וסגירה ספציפיות לתאריך מסוים. השעות הללו יחליפו את שעות ברירת המחדל (09:00-18:00) עבור התאריך שנבחר.
+                </p>
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
@@ -1112,8 +1150,22 @@ export default function AdminPage() {
                     </label>
                     <DayPicker
                       mode="single"
-                      selected={partialBlockDate}
-                      onSelect={(date) => setPartialBlockDate(date)}
+                      selected={customHoursDate}
+                      onSelect={(date) => {
+                        setCustomHoursDate(date);
+                        // Load existing schedule if exists
+                        if (date) {
+                          const dateStr = formatDateToString(date);
+                          const existing = dailySchedules.find(s => s.date === dateStr);
+                          if (existing) {
+                            setCustomHoursStartTime(existing.start_time);
+                            setCustomHoursEndTime(existing.end_time);
+                          } else {
+                            setCustomHoursStartTime('09:00');
+                            setCustomHoursEndTime('18:00');
+                          }
+                        }
+                      }}
                       className="bg-white rounded-lg p-2"
                       modifiers={{
                         blocked: blockedDateObjects
@@ -1126,60 +1178,60 @@ export default function AdminPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                        שעת התחלה
+                        שעת פתיחה
                       </label>
                       <input
                         type="time"
-                        value={partialBlockStartTime}
-                        onChange={(e) => setPartialBlockStartTime(e.target.value)}
+                        value={customHoursStartTime}
+                        onChange={(e) => setCustomHoursStartTime(e.target.value)}
                         className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                        שעת סיום
+                        שעת סגירה
                       </label>
                       <input
                         type="time"
-                        value={partialBlockEndTime}
-                        onChange={(e) => setPartialBlockEndTime(e.target.value)}
+                        value={customHoursEndTime}
+                        onChange={(e) => setCustomHoursEndTime(e.target.value)}
                         className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
                       />
                     </div>
                   </div>
                   <button
-                    onClick={handleAddPartialBlock}
-                    disabled={!partialBlockDate || savingPartialBlock}
+                    onClick={handleSaveCustomHours}
+                    disabled={!customHoursDate || savingCustomHours}
                     className="w-full px-4 py-2 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {savingPartialBlock ? 'מוסיף...' : 'הוסף חסימת זמן'}
+                    {savingCustomHours ? 'שומר...' : 'שמור שעות מותאמות'}
                   </button>
                 </div>
               </div>
 
-              {/* Existing Partial Blocks List */}
+              {/* Existing Custom Hours List */}
               <div>
-                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">חסימות זמן קיימות</h4>
-                {blockedTimeSlots.length === 0 ? (
-                  <p className="text-[#666666] text-center py-4">אין חסימות זמן חלקיות</p>
+                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">שעות מותאמות קיימות</h4>
+                {dailySchedules.length === 0 ? (
+                  <p className="text-[#666666] text-center py-4">אין שעות מותאמות. השתמשו בטופס למעלה כדי להגדיר שעות מותאמות.</p>
                 ) : (
                   <div className="space-y-2">
-                    {blockedTimeSlots.map((slot) => (
+                    {dailySchedules.map((schedule) => (
                       <div
-                        key={slot.id}
-                        className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-4 py-3"
+                        key={schedule.id}
+                        className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3"
                       >
                         <div className="flex items-center gap-4">
                           <span className="text-sm font-medium text-[#2c2c2c]">
-                            {formatDate(slot.date)}
+                            {formatDate(schedule.date)}
                           </span>
                           <span className="text-sm text-[#666666]">
-                            {formatTime(slot.start_time)} - {formatTime(slot.end_time)}
+                            {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
                           </span>
                         </div>
                         <button
-                          onClick={() => slot.id && handleDeletePartialBlock(slot.id)}
-                          className="text-orange-600 hover:text-orange-700 text-sm font-medium"
+                          onClick={() => schedule.id && handleDeleteCustomHours(schedule.id, schedule.date)}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                           title="מחק"
                         >
                           <FaTimes className="w-4 h-4" />

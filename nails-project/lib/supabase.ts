@@ -58,6 +58,15 @@ export interface BlockedTimeSlot {
   created_at?: string;
 }
 
+export interface DailySchedule {
+  id?: string;
+  date: string; // Format: "YYYY-MM-DD"
+  start_time: string; // Format: "HH:MM"
+  end_time: string; // Format: "HH:MM"
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ActivityLog {
   id: string;
   created_at: string;

@@ -7,7 +7,7 @@ import { SiWaze } from 'react-icons/si';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot, logActivity } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot, DailySchedule, logActivity } from '@/lib/supabase';
 import { isPhoneVerified, createVerifiedSession, clearAllSessions, getAllVerifiedPhones } from '@/lib/session';
 
 type Step = 'services' | 'calendar' | 'contact' | 'verification' | 'success';
@@ -53,6 +53,7 @@ export default function Home() {
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [loadingBlockedDates, setLoadingBlockedDates] = useState(false);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
+  const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
 
   const services = [
     {
@@ -105,14 +106,16 @@ export default function Home() {
     }
   }, [showMyAppointments]);
 
-  // Fetch bookings and blocked time slots when date is selected
+  // Fetch bookings, blocked time slots, and daily schedule when date is selected
   useEffect(() => {
     if (selectedDate) {
       fetchBookings(selectedDate);
       fetchBlockedTimeSlotsForDate(selectedDate);
+      fetchDailyScheduleForDate(selectedDate);
     } else {
       setBookings([]);
       setBlockedTimeSlots([]);
+      setDailySchedule(null);
     }
   }, [selectedDate]);
 
@@ -153,6 +156,32 @@ export default function Home() {
     } catch (error) {
       console.error('Error:', error);
       setBlockedTimeSlots([]);
+    }
+  };
+
+  const fetchDailyScheduleForDate = async (date: Date) => {
+    try {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const { data, error } = await supabase
+        .from('daily_schedules')
+        .select('*')
+        .eq('date', dateStr)
+        .single();
+
+      if (error) {
+        // If no schedule found (error code PGRST116), that's fine - use defaults
+        if (error.code === 'PGRST116') {
+          setDailySchedule(null);
+        } else {
+          console.error('Error fetching daily schedule:', error);
+          setDailySchedule(null);
+        }
+      } else {
+        setDailySchedule(data);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setDailySchedule(null);
     }
   };
 
@@ -270,10 +299,28 @@ export default function Home() {
       return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
     };
 
-    // Check for override start time (future: could be stored in a date_overrides table or blocked_time_slots with special flag)
-    // For now, check if there's a blocked slot starting at 00:00 or before default start - the end_time would be the override start
-    const defaultStartMinutes = 9 * 60; // 09:00 default
-    const defaultEndMinutes = 18 * 60; // 18:00 default
+    // Determine working hours: check daily_schedules first, then use defaults
+    // Default: 09:00-18:00 for Sun-Fri, closed (no slots) for Saturday
+    const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    let workingStartMinutes: number;
+    let workingEndMinutes: number;
+    
+    if (dailySchedule) {
+      // Use custom schedule from daily_schedules table
+      workingStartMinutes = timeToMinutes(dailySchedule.start_time);
+      workingEndMinutes = timeToMinutes(dailySchedule.end_time);
+    } else {
+      // Use defaults based on day of week
+      if (dayOfWeek === 6) {
+        // Saturday - closed by default (return empty slots)
+        return [];
+      } else {
+        // Sunday-Friday: 09:00-18:00
+        workingStartMinutes = 9 * 60; // 09:00
+        workingEndMinutes = 18 * 60; // 18:00
+      }
+    }
     
     // Get blocked time slots for this date, sorted by start_time
     const dateBlockedSlots = blockedTimeSlots
@@ -284,42 +331,31 @@ export default function Home() {
       }))
       .sort((a, b) => a.start - b.start);
 
-    // Check for override start time (blocked slot starting at 00:00 or before default start time)
-    // The end_time of such a block becomes the effective start time
-    let effectiveStartMinutes = defaultStartMinutes;
-    const overrideBlock = dateBlockedSlots.find(bt => bt.start === 0 || bt.start < defaultStartMinutes);
-    if (overrideBlock) {
-      effectiveStartMinutes = overrideBlock.end;
-    }
-
     const duration = selectedServiceData.durationMinutes;
     const slots: { start: string; end: string; key: string }[] = [];
 
-    // Filter out override blocks from window calculation (already handled by effectiveStartMinutes)
-    const regularBlockedSlots = dateBlockedSlots.filter(bt => !(bt.start === 0 || bt.start < defaultStartMinutes));
-
     // Build available time windows (gaps between blocked slots)
     const availableWindows: { start: number; end: number }[] = [];
-    let currentPos = effectiveStartMinutes;
+    let currentPos = workingStartMinutes;
 
-    // Process regular blocked slots to find available windows
-    for (const blocked of regularBlockedSlots) {
+    // Process blocked slots to find available windows
+    for (const blocked of dateBlockedSlots) {
       // If blocked slot starts after current position, there's an available window
       if (blocked.start > currentPos) {
         availableWindows.push({
           start: currentPos,
-          end: Math.min(blocked.start, defaultEndMinutes)
+          end: Math.min(blocked.start, workingEndMinutes)
         });
       }
       // Move current position to end of blocked slot (or later if already past)
       currentPos = Math.max(currentPos, blocked.end);
     }
 
-    // Add final window from last position to end of day (this handles both cases: with and without blocked slots)
-    if (currentPos < defaultEndMinutes) {
+    // Add final window from last position to end of working hours
+    if (currentPos < workingEndMinutes) {
       availableWindows.push({
         start: currentPos,
-        end: defaultEndMinutes
+        end: workingEndMinutes
       });
     }
 
@@ -355,8 +391,23 @@ export default function Home() {
       }
     }
 
+    // Filter out past slots if the selected date is today
+    const today = new Date();
+    const isToday = format(selectedDate, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd');
+    
+    if (isToday) {
+      // Get current time in minutes
+      const currentMinutes = today.getHours() * 60 + today.getMinutes();
+      
+      // Filter out slots that start before the current time
+      return slots.filter(slot => {
+        const slotStartMinutes = timeToMinutes(slot.start);
+        return slotStartMinutes >= currentMinutes;
+      });
+    }
+
     return slots;
-  }, [selectedServiceData, selectedDate, blockedTimeSlots, blockedDates, bookings]);
+  }, [selectedServiceData, selectedDate, blockedTimeSlots, blockedDates, bookings, dailySchedule]);
 
   const formatDate = (date: Date): string => {
     return `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
