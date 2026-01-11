@@ -252,6 +252,16 @@ export default function Home() {
     'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
   ];
 
+  // Safe date parser for Android/Chrome compatibility
+  const parseDateString = (dateStr: string): Date => {
+    // Split date string (format: YYYY-MM-DD) and construct date manually
+    const [year, month, day] = dateStr.split('-').map(Number);
+    // month is 0-indexed in Date constructor, so subtract 1
+    const date = new Date(year, month - 1, day);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
   // Prepare disabled dates for DayPicker
   const disabledDates = useMemo(() => {
     const today = new Date();
@@ -262,16 +272,14 @@ export default function Home() {
     maxDate.setHours(23, 59, 59, 999);
     
     const blockedDateObjects: Date[] = blockedDates.map(bd => {
-      const date = new Date(bd.date + 'T00:00:00');
-      date.setHours(0, 0, 0, 0);
-      return date;
+      return parseDateString(bd.date);
     });
 
     // Combine matchers and blocked dates
     return [
       { before: today }, // Disable past dates
       { after: maxDate }, // Disable dates beyond 2 months
-      { dayOfWeek: [5, 6] }, // Disable Friday (5) and Saturday (6)
+      { dayOfWeek: [6] }, // Disable Saturday (6) only - Friday is now available
       ...blockedDateObjects // Disable blocked dates
     ];
   }, [blockedDates]);
@@ -301,8 +309,8 @@ export default function Home() {
     };
 
     // Determine working hours: check daily_schedules first, then use defaults
-    // Default: 09:00-18:00 for Sun-Fri, closed (no slots) for Saturday
-    const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
+    // Default: 09:00-18:00 for Sun-Thu, 09:00-12:00 for Friday, closed for Saturday
+    const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 5 = Friday, 6 = Saturday
     
     let workingStartMinutes: number;
     let workingEndMinutes: number;
@@ -316,8 +324,12 @@ export default function Home() {
       if (dayOfWeek === 6) {
         // Saturday - closed by default (return empty slots)
         return [];
+      } else if (dayOfWeek === 5) {
+        // Friday - 09:00-12:00
+        workingStartMinutes = 9 * 60; // 09:00
+        workingEndMinutes = 12 * 60; // 12:00
       } else {
-        // Sunday-Friday: 09:00-18:00
+        // Sunday-Thursday: 09:00-18:00
         workingStartMinutes = 9 * 60; // 09:00
         workingEndMinutes = 18 * 60; // 18:00
       }
@@ -686,7 +698,7 @@ export default function Home() {
         .single();
 
       if (bookingData) {
-        const formattedDate = format(new Date(bookingData.date + 'T00:00:00'), 'dd/MM/yyyy');
+        const formattedDate = format(parseDateString(bookingData.date), 'dd/MM/yyyy');
         const formattedTime = bookingData.start_time.slice(0, 5); // HH:mm format
         
         // Add activity log entry
@@ -901,7 +913,7 @@ export default function Home() {
       } else {
         // Add activity log entry
         if (booking && booking.date && booking.start_time) {
-          const formattedDate = format(new Date(booking.date + 'T00:00:00'), 'dd/MM/yyyy');
+          const formattedDate = format(parseDateString(booking.date), 'dd/MM/yyyy');
           const formattedTime = booking.start_time.slice(0, 5); // HH:mm format
           await logActivity('cancel', `בוטל תור: ${booking.customer_name} שהיה קבוע ל-${formattedDate} בשעה ${formattedTime}`);
         } else if (booking) {
@@ -922,7 +934,7 @@ export default function Home() {
   };
 
   const formatDateString = (dateStr: string): string => {
-    const date = new Date(dateStr + 'T00:00:00');
+    const date = parseDateString(dateStr);
     const hebrewMonths = [
       'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
       'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
@@ -1214,7 +1226,7 @@ export default function Home() {
           </div>
           
           {/* Action Buttons - Circular Contact Buttons */}
-          <div className="flex items-center justify-center gap-4 md:gap-6">
+          <div className="flex items-center justify-center gap-4 md:gap-6 relative z-20 pointer-events-auto">
             {/* WhatsApp Button */}
             <a
               href="https://wa.me/972508917748"
