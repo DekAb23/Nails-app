@@ -1396,27 +1396,45 @@ export default function Home() {
                       border-radius: 0.5rem;
                       border: 1px solid transparent;
                       background-color: transparent;
-                      color: #2c2c2c;
+                      color: #000000 !important;
                       font-size: 0.875rem;
+                      font-weight: 500;
                       cursor: pointer;
                       transition: all 0.2s;
                     }
                     .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
                       background-color: #f5f5f5;
                       border-color: #c9a961;
+                      color: #000000 !important;
                     }
                     .rdp-button[disabled] {
-                      opacity: 0.3;
+                      opacity: 0.25;
                       cursor: not-allowed;
-                      color: #b0b0b0;
+                      color: #b0b0b0 !important;
                     }
                     .rdp-day_selected .rdp-button {
-                      background-color: var(--rdp-accent-color);
-                      color: white;
-                      font-weight: 600;
-                    }
-                    .rdp-day_today .rdp-button {
+                      background-color: #c9a961 !important;
+                      color: #ffffff !important;
                       font-weight: 700;
+                      border-color: #c9a961;
+                    }
+                    .rdp-day_selected .rdp-button:hover {
+                      background-color: #b8964f !important;
+                      color: #ffffff !important;
+                    }
+                    .rdp-day_today .rdp-button:not(.rdp-day_selected) {
+                      font-weight: 700;
+                      color: #000000 !important;
+                      border: 2px solid #c9a961;
+                      background-color: transparent;
+                    }
+                    .rdp-day_today .rdp-button:hover:not(.rdp-day_selected) {
+                      background-color: #faf8f3;
+                      border-color: #c9a961;
+                      color: #000000 !important;
+                    }
+                    .rdp-day_today.rdp-day_selected .rdp-button {
+                      border: 2px solid #b8964f;
                     }
                     .rdp-caption {
                       display: flex;
