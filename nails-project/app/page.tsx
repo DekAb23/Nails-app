@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
 import { SiWaze } from 'react-icons/si';
+import { Instagram } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
@@ -1212,7 +1213,7 @@ export default function Home() {
             </div>
           </div>
           
-          {/* Action Buttons - Three Circular Buttons */}
+          {/* Action Buttons - Circular Contact Buttons */}
           <div className="flex items-center justify-center gap-4 md:gap-6">
             {/* WhatsApp Button */}
             <a
@@ -1247,6 +1248,17 @@ export default function Home() {
               aria-label="Navigate with Waze"
             >
               <SiWaze className="w-7 h-7 md:w-8 md:h-8 text-white" />
+            </a>
+            
+            {/* Instagram Button */}
+            <a
+              href="https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA=="
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-[#E1306C] to-[#C13584] hover:from-[#C13584] hover:to-[#833AB4] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
+              aria-label="Instagram"
+            >
+              <Instagram className="w-7 h-7 md:w-8 md:h-8 text-white" />
             </a>
           </div>
         </div>
