@@ -1264,7 +1264,7 @@ export default function Home() {
             
             {/* Instagram Button */}
             <a
-              href="https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA=="
+              href="https://www.instagram.com/adar_abergel_cosmetics/"
               target="_blank"
               rel="noopener noreferrer"
               className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-[#E1306C] to-[#C13584] hover:from-[#C13584] hover:to-[#833AB4] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
