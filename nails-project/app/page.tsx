@@ -1358,6 +1358,7 @@ export default function Home() {
                 <h2 className="text-xl font-medium text-[#2c2c2c]">בחר תאריך</h2>
                 <div className="flex justify-center">
                   <style jsx global>{`
+                    /* Prevent Android color inversion */
                     .rdp {
                       --rdp-cell-size: 40px;
                       --rdp-accent-color: #c9a961;
@@ -1366,6 +1367,8 @@ export default function Home() {
                       --rdp-outline-selected: 2px solid var(--rdp-accent-color);
                       margin: 0;
                       direction: rtl;
+                      filter: none !important;
+                      color-scheme: light only !important;
                     }
                     .rdp-months {
                       display: flex;
@@ -1383,13 +1386,14 @@ export default function Home() {
                       font-weight: 600;
                       font-size: 0.875rem;
                       padding: 0.5rem;
-                      color: #666666;
+                      color: #333333 !important;
                     }
                     .rdp-cell {
                       width: var(--rdp-cell-size);
                       height: var(--rdp-cell-size);
                       position: relative;
                     }
+                    /* Force dark text color for all available days */
                     .rdp-button {
                       width: 100%;
                       height: 100%;
@@ -1407,16 +1411,21 @@ export default function Home() {
                       border-color: #c9a961;
                       color: #000000 !important;
                     }
+                    /* Disabled days - clear gray background with darker text */
                     .rdp-button[disabled] {
-                      opacity: 0.25;
+                      opacity: 1 !important;
                       cursor: not-allowed;
-                      color: #b0b0b0 !important;
+                      color: #666666 !important;
+                      background-color: #e5e5e5 !important;
+                      border-color: #d0d0d0 !important;
                     }
+                    /* Selected day - very bold with brand color */
                     .rdp-day_selected .rdp-button {
                       background-color: #c9a961 !important;
                       color: #ffffff !important;
-                      font-weight: 700;
-                      border-color: #c9a961;
+                      font-weight: 700 !important;
+                      border: 2px solid #b8964f !important;
+                      box-shadow: 0 2px 4px rgba(201, 169, 97, 0.3);
                     }
                     .rdp-day_selected .rdp-button:hover {
                       background-color: #b8964f !important;
@@ -1434,7 +1443,7 @@ export default function Home() {
                       color: #000000 !important;
                     }
                     .rdp-day_today.rdp-day_selected .rdp-button {
-                      border: 2px solid #b8964f;
+                      border: 2px solid #b8964f !important;
                     }
                     .rdp-caption {
                       display: flex;
@@ -1446,7 +1455,7 @@ export default function Home() {
                     .rdp-caption_label {
                       font-weight: 600;
                       font-size: 1rem;
-                      color: #2c2c2c;
+                      color: #2c2c2c !important;
                     }
                     .rdp-nav {
                       display: flex;
@@ -1458,9 +1467,49 @@ export default function Home() {
                       border: 1px solid #e0e0e0;
                       background-color: white;
                       cursor: pointer;
+                      color: #2c2c2c !important;
                     }
                     .rdp-button_reset:hover {
                       background-color: #f5f5f5;
+                    }
+                    /* Stronger selectors for Android - Force colors on day elements */
+                    .rdp-day {
+                      color: #000000 !important;
+                      background-color: transparent !important;
+                      filter: none !important;
+                    }
+                    .rdp-day .rdp-button {
+                      color: #000000 !important;
+                      background-color: transparent !important;
+                      filter: none !important;
+                    }
+                    .rdp-day_disabled,
+                    .rdp-day_disabled .rdp-button {
+                      color: #bbbbbb !important;
+                      background-color: #f5f5f5 !important;
+                      opacity: 1 !important;
+                      filter: none !important;
+                    }
+                    .rdp-day_selected,
+                    .rdp-day_selected .rdp-button {
+                      background-color: #c9a961 !important; /* Adar's Gold */
+                      color: #ffffff !important;
+                      filter: none !important;
+                    }
+                    /* Ensure all day buttons have dark text unless selected */
+                    .rdp-day:not(.rdp-day_selected) .rdp-button {
+                      color: #000000 !important;
+                      filter: none !important;
+                    }
+                    /* Past dates that are disabled */
+                    .rdp-day_outside .rdp-button {
+                      color: #999999 !important;
+                      background-color: #f9f9f9 !important;
+                      filter: none !important;
+                    }
+                    /* Force filter none on all calendar elements */
+                    .rdp * {
+                      filter: none !important;
                     }
                   `}</style>
                   <DayPicker

@@ -682,12 +682,15 @@ export default function AdminPage() {
             </div>
             
             <style jsx global>{`
+              /* Prevent Android color inversion */
               .rdp {
                 --rdp-cell-size: 36px;
                 --rdp-accent-color: #c9a961;
                 --rdp-background-color: #f5f5f5;
                 margin: 0;
                 direction: rtl;
+                filter: none !important;
+                color-scheme: light only !important;
               }
               @media (min-width: 768px) {
                 .rdp {
@@ -710,7 +713,7 @@ export default function AdminPage() {
                 font-weight: 600;
                 font-size: 0.75rem;
                 padding: 0.4rem;
-                color: #666666;
+                color: #333333 !important;
               }
               @media (min-width: 768px) {
                 .rdp-head_cell {
@@ -723,16 +726,18 @@ export default function AdminPage() {
                 height: var(--rdp-cell-size);
                 position: relative;
               }
+              /* Force dark text color for all available days */
               .rdp-button {
                 width: 100%;
                 height: 100%;
                 border-radius: 0.5rem;
                 border: 1px solid transparent;
                 background-color: transparent;
-                color: #2c2c2c;
+                color: #000000 !important;
                 font-size: 0.75rem;
                 cursor: pointer;
                 transition: all 0.2s;
+                font-weight: 500;
               }
               @media (min-width: 768px) {
                 .rdp-button {
@@ -742,34 +747,48 @@ export default function AdminPage() {
               .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
                 background-color: #f5f5f5;
                 border-color: #c9a961;
+                color: #000000 !important;
               }
+              /* Disabled days - clear gray background with darker text */
               .rdp-button[disabled] {
-                opacity: 0.3;
+                opacity: 1 !important;
                 cursor: not-allowed;
-                color: #b0b0b0;
+                color: #666666 !important;
+                background-color: #e5e5e5 !important;
+                border-color: #d0d0d0 !important;
               }
+              /* Selected day - very bold with brand color */
               .rdp-day_selected .rdp-button {
-                background-color: var(--rdp-accent-color);
-                color: white;
-                font-weight: 600;
+                background-color: #c9a961 !important;
+                color: #ffffff !important;
+                font-weight: 700 !important;
+                border: 2px solid #b8964f !important;
+                box-shadow: 0 2px 4px rgba(201, 169, 97, 0.3);
               }
               .rdp-day_today .rdp-button {
                 font-weight: 700;
                 border: 2px solid #c9a961;
+                color: #000000 !important;
+              }
+              .rdp-day_today:not(.rdp-day_selected) .rdp-button {
+                color: #000000 !important;
               }
               .rdp-day_has-bookings .rdp-button {
                 background-image: radial-gradient(circle, #c9a961 2px, transparent 2px);
                 background-position: bottom center;
                 background-repeat: no-repeat;
+                color: #000000 !important;
               }
               .rdp-day_blocked .rdp-button {
                 background-image: radial-gradient(circle, #fecaca 2px, transparent 2px);
                 background-position: bottom center;
                 background-repeat: no-repeat;
+                color: #000000 !important;
               }
               .rdp-day_blocked.rdp-day_selected .rdp-button {
-                background-color: var(--rdp-accent-color);
-                color: white;
+                background-color: #c9a961 !important;
+                color: #ffffff !important;
+                font-weight: 700 !important;
               }
               .rdp-caption {
                 display: flex;
@@ -781,7 +800,7 @@ export default function AdminPage() {
               .rdp-caption_label {
                 font-weight: 600;
                 font-size: 0.9rem;
-                color: #2c2c2c;
+                color: #2c2c2c !important;
               }
               @media (min-width: 768px) {
                 .rdp-caption_label {
@@ -798,9 +817,49 @@ export default function AdminPage() {
                 border: 1px solid #e0e0e0;
                 background-color: white;
                 cursor: pointer;
+                color: #2c2c2c !important;
               }
               .rdp-button_reset:hover {
                 background-color: #f5f5f5;
+              }
+              /* Stronger selectors for Android - Force colors on day elements */
+              .rdp-day {
+                color: #000000 !important;
+                background-color: transparent !important;
+                filter: none !important;
+              }
+              .rdp-day .rdp-button {
+                color: #000000 !important;
+                background-color: transparent !important;
+                filter: none !important;
+              }
+              .rdp-day_disabled,
+              .rdp-day_disabled .rdp-button {
+                color: #bbbbbb !important;
+                background-color: #f5f5f5 !important;
+                opacity: 1 !important;
+                filter: none !important;
+              }
+              .rdp-day_selected,
+              .rdp-day_selected .rdp-button {
+                background-color: #c9a961 !important; /* Adar's Gold */
+                color: #ffffff !important;
+                filter: none !important;
+              }
+              /* Ensure all day buttons have dark text unless selected */
+              .rdp-day:not(.rdp-day_selected) .rdp-button {
+                color: #000000 !important;
+                filter: none !important;
+              }
+              /* Past dates that are disabled */
+              .rdp-day_outside .rdp-button {
+                color: #999999 !important;
+                background-color: #f9f9f9 !important;
+                filter: none !important;
+              }
+              /* Force filter none on all calendar elements */
+              .rdp * {
+                filter: none !important;
               }
             `}</style>
             
