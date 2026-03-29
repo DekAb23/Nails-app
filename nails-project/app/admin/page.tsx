@@ -37,7 +37,14 @@ export default function AdminPage() {
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('18:00');
 
-  // --- Helpers ---
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, []);
+
   const toLocalDateString = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -73,7 +80,6 @@ export default function AdminPage() {
 
   useEffect(() => { if (session) fetchData(); }, [session]);
 
-  // --- Handlers ---
   const handleDeleteSchedule = async (id: string, dateStr: string) => {
     if (!confirm('לבטל את שעות העבודה המיוחדות ליום זה?')) return;
     await supabase.from('daily_schedules').delete().eq('id', id);
@@ -88,24 +94,29 @@ export default function AdminPage() {
     fetchData();
   };
 
-  // --- Indicators Logic ---
+  // --- Logic for Indicators (ONLY FUTURE) ---
   const bookingDateObjects = useMemo(() => bookings.map(b => {
       const [y, m, d] = b.date.split('-').map(Number);
       return new Date(y, m - 1, d);
   }), [bookings]);
 
-  const blockedDateObjects = useMemo(() => blockedDates.map(bd => {
+  const blockedDateObjects = useMemo(() => 
+    blockedDates.filter(bd => bd.date >= todayStr).map(bd => {
       const [y, m, d] = bd.date.split('-').map(Number);
       return new Date(y, m - 1, d);
-  }), [blockedDates]);
+  }), [blockedDates, todayStr]);
 
-  const partialDateObjects = useMemo(() => dailySchedules.map(ds => {
+  const partialDateObjects = useMemo(() => 
+    dailySchedules.filter(ds => ds.date >= todayStr).map(ds => {
       const [y, m, d] = ds.date.split('-').map(Number);
       return new Date(y, m - 1, d);
-  }), [dailySchedules]);
+  }), [dailySchedules, todayStr]);
 
-  // --- Filters for Safety Window ---
-  const todayStr = toLocalDateString(new Date());
+  // --- Logic for KPIs (ONLY FUTURE) ---
+  const activeBlockedCount = useMemo(() => {
+    return blockedDates.filter(bd => bd.date >= todayStr).length;
+  }, [blockedDates, todayStr]);
+
   const futureBlocked = useMemo(() => blockedDates.filter(bd => bd.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedDates, todayStr]);
   const futureSchedules = useMemo(() => dailySchedules.filter(ds => ds.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
 
@@ -132,8 +143,8 @@ export default function AdminPage() {
       <main className="max-w-6xl mx-auto px-4 mt-6 space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard title="תורים היום" value={bookings.filter(b => b.date === todayStr).length} icon={Clock} color="bg-blue-500" />
-          <StatCard title="תורים פעילים" value={bookings.length} icon={Users} color="bg-[#c9a961]" />
-          <StatCard title="חסימות" value={blockedDates.length} icon={XCircle} color="bg-red-500" />
+          <StatCard title="תורים פעילים" value={bookings.filter(b => b.date >= todayStr).length} icon={Users} color="bg-[#c9a961]" />
+          <StatCard title="חסימות" value={activeBlockedCount} icon={XCircle} color="bg-red-500" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -145,13 +156,8 @@ export default function AdminPage() {
                 .rdp-day { border-radius: 14px; height: 45px; width: 45px; font-weight: 600; position: relative; transition: all 0.2s; }
                 .rdp-day_selected { background-color: #c9a961 !important; border-radius: 14px !important; color: white !important; }
                 .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; background: #c9a961; border-radius: 50%; }
-                
-                /* יום חסום מלא - אדום */
                 .rdp-day_blocked { background-color: #fff1f2 !important; color: #e11d48 !important; border: 1px solid #fecaca; }
-                
-                /* יום חסום חלקי - צהוב בהיר */
                 .rdp-day_partial { background-color: #fefce8 !important; color: #a16207 !important; border: 1px solid #fef08a; }
-                
                 .rdp-day_past:not(.rdp-day_selected) { opacity: 0.4; }
               `}</style>
               <DayPicker 
@@ -211,7 +217,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Safety Window - Updated with Delete Logic */}
             <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-red-600"><AlertTriangle size={18}/> חסימות עתידיות</h2>
               <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
