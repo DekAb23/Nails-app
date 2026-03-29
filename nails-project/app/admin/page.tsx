@@ -4,1306 +4,307 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
-import { FaWhatsapp, FaPhone, FaTimes, FaCalendarTimes } from 'react-icons/fa';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot, DailySchedule, logActivity, ActivityLog } from '@/lib/supabase';
+import { 
+  Calendar as CalendarIcon, Users, Clock, XCircle, Phone, 
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X
+} from 'lucide-react';
+import { supabase, Booking, BlockedDate, DailySchedule, logActivity, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
-
-// LoginForm Component
-function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (authError) {
-        setError('אימייל או סיסמה שגויים');
-        return;
-      }
-
-      if (data.session) {
-        onLoginSuccess();
-      }
-    } catch (err) {
-      setError('אירעה שגיאה בהתחברות');
-      console.error('Login error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+// --- UI Components ---
+function StatCard({ title, value, icon: Icon, color }: any) {
   return (
-    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 to-rose-50 px-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
-        <h1 className="text-3xl font-bold text-center text-[#2c2c2c] mb-6">לוח בקרה</h1>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-[#2c2c2c] mb-2">
-              אימייל
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-              placeholder="your@email.com"
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-[#2c2c2c] mb-2">
-              סיסמה
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-              placeholder="הכנס סיסמה"
-              required
-            />
-          </div>
-          {error && (
-            <p className="text-red-500 text-sm text-center">{error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full px-6 py-3 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'מתחבר...' : 'התחבר'}
-          </button>
-        </form>
-        <button
-          onClick={() => router.push('/')}
-          className="w-full mt-4 px-6 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
-        >
-          חזרה לעמוד הראשי
-        </button>
+    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
+      <div className={`p-3 rounded-2xl ${color} bg-opacity-10`}>
+        <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</p>
+        <h3 className="text-xl font-bold text-slate-900">{value}</h3>
       </div>
     </div>
   );
 }
 
 export default function AdminPage() {
-  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
-  const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [showBlockDatePicker, setShowBlockDatePicker] = useState(false);
-  const [dateToBlock, setDateToBlock] = useState<Date | undefined>(undefined);
-  const [blockingDate, setBlockingDate] = useState(false);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
-  
-  // Special Closures state
-  const [specialClosureType, setSpecialClosureType] = useState<'full' | 'custom-hours'>('full');
   const [dailySchedules, setDailySchedules] = useState<DailySchedule[]>([]);
-  const [customHoursDate, setCustomHoursDate] = useState<Date | undefined>(undefined);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('18:00');
-  const [savingCustomHours, setSavingCustomHours] = useState(false);
 
-  const checkSession = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-    } catch (error) {
-      console.error('Error checking session:', error);
-    } finally {
-      setCheckingAuth(false);
-    }
-  };
-
-  // Check session on mount and listen to auth changes
-  useEffect(() => {
-    checkSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setCheckingAuth(false);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (session) {
-      fetchBookings();
-      fetchBlockedDates();
-      fetchBlockedTimeSlots();
-      fetchDailySchedules();
-      fetchActivityLog();
-    }
-  }, [session]);
-
-  const fetchActivityLog = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('activity_log')
-        .select('id, type, description, created_at')
-        .order('created_at', { ascending: false })
-        .limit(15);
-
-      if (error) {
-        console.error('Error fetching activity log:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
-        setActivities([]);
-      } else {
-        console.log('Fetched activities:', data?.length || 0, 'items');
-        setActivities(data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching activity log:', error);
-      setActivities([]);
-    }
-  };
-
-  const formatTimeAgo = (date: Date): string => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'זה עתה';
-    if (diffMins < 60) return `לפני ${diffMins} דקות`;
-    if (diffHours < 24) return `לפני ${diffHours} שעות`;
-    if (diffDays < 7) return `לפני ${diffDays} ימים`;
-    return date.toLocaleDateString('he-IL');
-  };
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      setSession(null);
-      setBookings([]);
-      setBlockedDates([]);
-      setActivities([]);
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
-  };
-
-  const fetchBookings = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .neq('status', 'cancelled')
-        .order('date', { ascending: true })
-        .order('start_time', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching bookings:', error);
-        alert('אירעה שגיאה בטעינת התורים');
-      } else {
-        setBookings(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('אירעה שגיאה בטעינת התורים');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchBlockedDates = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('blocked_dates')
-        .select('*')
-        .order('date', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching blocked dates:', error);
-      } else {
-        setBlockedDates(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  const fetchBlockedTimeSlots = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('blocked_time_slots')
-        .select('*')
-        .order('date', { ascending: true })
-        .order('start_time', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching blocked time slots:', error);
-      } else {
-        setBlockedTimeSlots(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  const fetchDailySchedules = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('daily_schedules')
-        .select('*')
-        .order('date', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching daily schedules:', error);
-      } else {
-        setDailySchedules(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  const handleSaveCustomHours = async () => {
-    if (!customHoursDate) {
-      alert('אנא בחר תאריך');
-      return;
-    }
-
-    if (customHoursStartTime >= customHoursEndTime) {
-      alert('שעת פתיחה חייבת להיות לפני שעת סגירה');
-      return;
-    }
-
-    setSavingCustomHours(true);
-    try {
-      const dateStr = formatDateToString(customHoursDate);
-      const formattedDate = formatDate(dateStr);
-      
-      // Check if schedule already exists for this date
-      const existingSchedule = dailySchedules.find(s => s.date === dateStr);
-      
-      if (existingSchedule) {
-        // Update existing schedule
-        const { error } = await supabase
-          .from('daily_schedules')
-          .update({
-            start_time: customHoursStartTime,
-            end_time: customHoursEndTime,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingSchedule.id);
-
-        if (error) {
-          console.error('Error updating daily schedule:', error);
-          alert('אירעה שגיאה בעדכון שעות העבודה');
-        } else {
-          alert(`שעות עבודה עודכנו: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
-          await logActivity('block', `שעות עבודה מותאמות: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
-          setCustomHoursDate(undefined);
-          setCustomHoursStartTime('09:00');
-          setCustomHoursEndTime('18:00');
-          await fetchDailySchedules();
-          await fetchBookings();
-          await fetchActivityLog();
-        }
-      } else {
-        // Insert new schedule
-        const { error } = await supabase
-          .from('daily_schedules')
-          .insert([{
-            date: dateStr,
-            start_time: customHoursStartTime,
-            end_time: customHoursEndTime
-          }]);
-
-        if (error) {
-          console.error('Error adding daily schedule:', error);
-          alert('אירעה שגיאה בשמירת שעות העבודה');
-        } else {
-          alert(`שעות עבודה נשמרו: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
-          await logActivity('block', `שעות עבודה מותאמות: ${customHoursStartTime}-${customHoursEndTime} לתאריך ${formattedDate}`);
-          setCustomHoursDate(undefined);
-          setCustomHoursStartTime('09:00');
-          setCustomHoursEndTime('18:00');
-          await fetchDailySchedules();
-          await fetchBookings();
-          await fetchActivityLog();
-        }
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('אירעה שגיאה');
-    } finally {
-      setSavingCustomHours(false);
-    }
-  };
-
-  const handleDeleteCustomHours = async (id: string, dateStr: string) => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את שעות העבודה המותאמות לתאריך זה?')) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('daily_schedules')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting daily schedule:', error);
-        alert('אירעה שגיאה במחיקת שעות העבודה');
-      } else {
-        const formattedDate = formatDate(dateStr);
-        await logActivity('blocked', `שעות עבודה מותאמות הוסרו: ${formattedDate} יחזור לשעות ברירת המחדל`);
-        await fetchDailySchedules();
-        await fetchBookings();
-        await fetchActivityLog();
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('אירעה שגיאה במחיקת שעות העבודה');
-    }
-  };
-
-  const handleBlockDate = async (date?: Date) => {
-    const dateToUse = date || dateToBlock;
-    if (!dateToUse) {
-      alert('אנא בחר תאריך');
-      return;
-    }
-
-    const dateStr = formatDateToString(dateToUse);
-    setBlockingDate(true);
-    
-    try {
-      // Check if date is already blocked
-      const isBlocked = blockedDates.some(bd => bd.date === dateStr);
-      
-      if (isBlocked) {
-        // Unblock: delete from blocked_dates table
-        const { error } = await supabase
-          .from('blocked_dates')
-          .delete()
-          .eq('date', dateStr);
-
-        if (error) {
-          console.error('Error unblocking date:', error);
-          alert('אירעה שגיאה בשחרור החסימה');
-        } else {
-          alert('התאריך שוחרר מחסימה בהצלחה');
-          await logActivity('blocked', `חסימת יום הוסרה: ${formatDate(dateStr)}`);
-          setDateToBlock(undefined);
-          setShowBlockDatePicker(false);
-          // Immediately refresh blocked dates to update calendar
-          await fetchBlockedDates();
-          await fetchBookings();
-          await fetchActivityLog();
-        }
-      } else {
-        // Block: insert into blocked_dates table
-        const { error } = await supabase
-          .from('blocked_dates')
-          .insert([{ date: dateStr }]);
-
-        if (error) {
-          console.error('Error blocking date:', error);
-          alert('אירעה שגיאה בחסימת התאריך');
-        } else {
-          alert('התאריך נחסם בהצלחה');
-          // Format date for activity log (DD/MM/YYYY)
-          const dateObj = new Date(dateStr + 'T00:00:00');
-          const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
-          await logActivity('block', `חסימת יום מלא: התאריך ${formattedDate} נחסם לקבלת קהל`);
-          setDateToBlock(undefined);
-          setShowBlockDatePicker(false);
-          // Immediately refresh blocked dates to update calendar
-          await fetchBlockedDates();
-          await fetchBookings();
-          await fetchActivityLog();
-        }
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('אירעה שגיאה');
-    } finally {
-      setBlockingDate(false);
-    }
-  };
-
-  const handleUnblockDate = async (dateId: string, dateStr: string) => {
-    if (!confirm('האם אתה בטוח שברצונך להסיר את החסימה מהתאריך הזה?')) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('blocked_dates')
-        .delete()
-        .eq('id', dateId);
-
-      if (error) {
-        console.error('Error unblocking date:', error);
-        alert('אירעה שגיאה בהסרת החסימה');
-      } else {
-        await logActivity('blocked', `חסימת יום הוסרה: ${formatDate(dateStr)}`);
-        await fetchActivityLog();
-        await fetchBlockedDates();
-        await fetchBookings();
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('אירעה שגיאה בהסרת החסימה');
-    }
-  };
-
-  const handleWhatsApp = (booking: Booking) => {
-    const phoneNumber = booking.customer_phone.startsWith('0') 
-      ? booking.customer_phone.slice(1) 
-      : booking.customer_phone;
-    const whatsappUrl = `https://wa.me/972${phoneNumber}`;
-    window.open(whatsappUrl, '_blank');
-  };
-
-  const handleCall = (phone: string) => {
-    window.location.href = `tel:${phone}`;
-  };
-
-  const handleCancelAndNotify = (booking: Booking) => {
-    if (!confirm('האם אתה בטוח שברצונך לבטל את התור ולהודיע ללקוח?')) {
-      return;
-    }
-
-    // Update booking status to cancelled
-    supabase
-      .from('bookings')
-      .update({ status: 'cancelled' })
-      .eq('id', booking.id)
-      .then(async () => {
-        // Format date and time for activity log
-        const dateObj = new Date(booking.date + 'T00:00:00');
-        const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
-        const formattedTime = booking.start_time ? booking.start_time.slice(0, 5) : ''; // HH:mm format
-        await logActivity('cancel', `בוטל תור: ${booking.customer_name} שהיה קבוע ל-${formattedDate} בשעה ${formattedTime}`);
-        await fetchBookings();
-        await fetchActivityLog();
-      });
-
-    // Format date for message
-    const date = new Date(booking.date + 'T00:00:00');
-    const hebrewMonths = [
-      'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
-      'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
-    ];
-    const formattedDate = `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
-
-    // Create WhatsApp message
-    const message = `שלום ${booking.customer_name}, התור שלך ל${booking.service_title} בתאריך ${formattedDate} בשעה ${formatTime(booking.start_time)} בוטל. אנא צרו קשר לקביעת תור חדש.`;
-    const encodedMessage = encodeURIComponent(message);
-    const phoneNumber = booking.customer_phone.startsWith('0') ? booking.customer_phone.slice(1) : booking.customer_phone;
-    const whatsappUrl = `https://wa.me/972${phoneNumber}?text=${encodedMessage}`;
-    
-    window.open(whatsappUrl, '_blank');
-  };
-
-  // Format date to YYYY-MM-DD in local timezone (avoid UTC offset issues)
-  const formatDateToString = (date: Date): string => {
+  // --- Helpers ---
+  const toLocalDateString = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
 
-  const formatDate = (dateStr: string): string => {
-    const date = new Date(dateStr + 'T00:00:00');
-    const hebrewMonths = [
-      'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
-      'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
-    ];
-    return `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
+  const formatHeDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  // Helper to normalize date to midnight local time for comparison
-  const normalizeDate = (date: Date): Date => {
-    const normalized = new Date(date);
-    normalized.setHours(0, 0, 0, 0);
-    return normalized;
+  const fetchData = async () => {
+    const { data: b } = await supabase.from('bookings').select('*').neq('status', 'cancelled').order('date');
+    const { data: bd } = await supabase.from('blocked_dates').select('*').order('date');
+    const { data: ds } = await supabase.from('daily_schedules').select('*').order('date');
+    const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(10);
+    setBookings(b || []);
+    setBlockedDates(bd || []);
+    setDailySchedules(ds || []);
+    setActivities(al || []);
   };
 
-  // Helper to format time string to HH:mm (remove seconds)
-  const formatTime = (time: string): string => {
-    if (!time) return '';
-    // If time is in format HH:mm:ss, slice to HH:mm
-    if (time.length >= 5) {
-      return time.slice(0, 5);
-    }
-    return time;
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setCheckingAuth(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => { if (session) fetchData(); }, [session]);
+
+  // --- Handlers ---
+  const handleDeleteSchedule = async (id: string, dateStr: string) => {
+    if (!confirm('לבטל את שעות העבודה המיוחדות ליום זה?')) return;
+    await supabase.from('daily_schedules').delete().eq('id', id);
+    await logActivity('blocked', `הסרת שעות מיוחדות: ${formatHeDate(dateStr)}`);
+    fetchData();
   };
 
-  // Simple array of dates with bookings for calendar indicators
-  const bookingDates = useMemo(() => {
-    const dates = new Set<string>();
-    bookings.forEach(booking => {
-      dates.add(booking.date);
-    });
-    return Array.from(dates).map(d => {
-      // Parse YYYY-MM-DD and create date in local timezone
-      const [year, month, day] = d.split('-').map(Number);
-      const date = new Date(year, month - 1, day);
-      return normalizeDate(date);
-    });
-  }, [bookings]);
+  const handleDeleteBlockedDate = async (id: string, dateStr: string) => {
+    if (!confirm('לפתוח את היום החסום?')) return;
+    await supabase.from('blocked_dates').delete().eq('id', id);
+    await logActivity('blocked', `פתיחת יום חסום: ${formatHeDate(dateStr)}`);
+    fetchData();
+  };
 
-  // Get blocked date objects
-  const blockedDateObjects = useMemo(() => {
-    return blockedDates.map(bd => {
-      // Parse YYYY-MM-DD and create date in local timezone
-      const [year, month, day] = bd.date.split('-').map(Number);
-      const date = new Date(year, month - 1, day);
-      return normalizeDate(date);
-    });
-  }, [blockedDates]);
+  // --- Indicators Logic ---
+  const bookingDateObjects = useMemo(() => bookings.map(b => {
+      const [y, m, d] = b.date.split('-').map(Number);
+      return new Date(y, m - 1, d);
+  }), [bookings]);
 
-  // Get bookings for selected date
+  const blockedDateObjects = useMemo(() => blockedDates.map(bd => {
+      const [y, m, d] = bd.date.split('-').map(Number);
+      return new Date(y, m - 1, d);
+  }), [blockedDates]);
+
+  const partialDateObjects = useMemo(() => dailySchedules.map(ds => {
+      const [y, m, d] = ds.date.split('-').map(Number);
+      return new Date(y, m - 1, d);
+  }), [dailySchedules]);
+
+  // --- Filters for Safety Window ---
+  const todayStr = toLocalDateString(new Date());
+  const futureBlocked = useMemo(() => blockedDates.filter(bd => bd.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedDates, todayStr]);
+  const futureSchedules = useMemo(() => dailySchedules.filter(ds => ds.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
+
   const dailyBookings = useMemo(() => {
-    if (!selectedDate) return [];
-    const dateStr = formatDateToString(selectedDate);
-    return bookings.filter(b => b.date === dateStr).sort((a, b) => {
-      return a.start_time.localeCompare(b.start_time);
-    });
+    const dateStr = toLocalDateString(selectedDate);
+    return bookings.filter(b => b.date === dateStr).sort((a,b) => a.start_time.localeCompare(b.start_time));
   }, [bookings, selectedDate]);
 
-  // Calculate quick stats
-  const stats = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = formatDateToString(today);
-    
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-
-    const todayBookings = bookings.filter(b => b.date === todayStr);
-    const weekBookings = bookings.filter(b => {
-      const bookingDate = new Date(b.date + 'T00:00:00');
-      return bookingDate >= weekStart && bookingDate <= weekEnd;
-    });
-
-    return {
-      today: todayBookings.length,
-      week: weekBookings.length,
-      total: bookings.length
-    };
-  }, [bookings]);
-
-  // Show loading state while checking auth
-  if (checkingAuth) {
-    return (
-      <div dir="rtl" className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-50 to-rose-50 px-4">
-        <div className="text-center">
-          <div className="text-[#2c2c2c] text-lg">בודק הרשאות...</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Show login form if no session
-  if (!session) {
-    return <LoginForm onLoginSuccess={checkSession} />;
-  }
+  if (checkingAuth) return null;
+  if (!session) return <div className="p-20 text-center font-sans">נא להתחבר...</div>;
 
   return (
-    <div dir="rtl" className="min-h-screen bg-gradient-to-br from-pink-50 to-rose-50 px-4 py-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-3xl font-bold text-[#2c2c2c]">לוח בקרה - אדר קוסמטיקס</h1>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
-            >
-              התנתק
-            </button>
+    <div dir="rtl" className="min-h-screen bg-[#F2F2F7] font-sans pb-10">
+      <nav className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl border-b border-white/20 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#c9a961] rounded-xl flex items-center justify-center text-white shadow-lg"><Settings2 size={20} /></div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">ניהול אדר קוסמטיקס</h1>
           </div>
+          <button onClick={() => supabase.auth.signOut()} className="text-slate-400 hover:text-red-500 transition-colors"><LogOut size={22} /></button>
+        </div>
+      </nav>
 
-          {/* Quick Stats */}
-          <div className="flex flex-wrap gap-4 pt-4 border-t border-[#e0e0e0]">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-[#c9a961] rounded-full"></div>
-              <span className="text-sm text-[#666666]">
-                <span className="font-semibold text-[#2c2c2c]">{stats.today}</span> תורים היום
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-              <span className="text-sm text-[#666666]">
-                <span className="font-semibold text-[#2c2c2c]">{stats.week}</span> תורים השבוע
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-              <span className="text-sm text-[#666666]">
-                <span className="font-semibold text-[#2c2c2c]">{stats.total}</span> סה"כ תורים פעילים
-              </span>
-            </div>
-          </div>
+      <main className="max-w-6xl mx-auto px-4 mt-6 space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard title="תורים היום" value={bookings.filter(b => b.date === todayStr).length} icon={Clock} color="bg-blue-500" />
+          <StatCard title="תורים פעילים" value={bookings.length} icon={Users} color="bg-[#c9a961]" />
+          <StatCard title="חסימות" value={blockedDates.length} icon={XCircle} color="bg-red-500" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Calendar Section */}
-          <div className="bg-white rounded-2xl shadow-xl p-4 md:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl md:text-2xl font-bold text-[#2c2c2c]">לוח שנה</h2>
-              <button
-                onClick={() => setShowBlockDatePicker(true)}
-                className="px-3 py-1.5 text-xs md:text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors flex items-center gap-2"
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5 space-y-6">
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800"><CalendarIcon size={18}/> לוח שנה</h2>
+              <style jsx global>{`
+                .rdp { --rdp-accent-color: #c9a961; width: 100%; margin: 0; }
+                .rdp-day { border-radius: 14px; height: 45px; width: 45px; font-weight: 600; position: relative; transition: all 0.2s; }
+                .rdp-day_selected { background-color: #c9a961 !important; border-radius: 14px !important; color: white !important; }
+                .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; background: #c9a961; border-radius: 50%; }
+                
+                /* יום חסום מלא - אדום */
+                .rdp-day_blocked { background-color: #fff1f2 !important; color: #e11d48 !important; border: 1px solid #fecaca; }
+                
+                /* יום חסום חלקי - צהוב בהיר */
+                .rdp-day_partial { background-color: #fefce8 !important; color: #a16207 !important; border: 1px solid #fef08a; }
+                
+                .rdp-day_past:not(.rdp-day_selected) { opacity: 0.4; }
+              `}</style>
+              <DayPicker 
+                mode="single" 
+                selected={selectedDate} 
+                onSelect={(d) => d && setSelectedDate(d)}
+                modifiers={{ 
+                    hasBooking: bookingDateObjects, 
+                    blocked: blockedDateObjects, 
+                    partial: partialDateObjects,
+                    past: (d) => d < new Date(new Date().setHours(0,0,0,0)) 
+                }}
+                modifiersClassNames={{ 
+                    hasBooking: 'rdp-day_hasBooking', 
+                    blocked: 'rdp-day_blocked', 
+                    partial: 'rdp-day_partial',
+                    past: 'rdp-day_past' 
+                }}
+              />
+              <button 
+                onClick={async () => {
+                  const dStr = toLocalDateString(selectedDate);
+                  const existing = blockedDates.find(d => d.date === dStr);
+                  if (existing) {
+                    await supabase.from('blocked_dates').delete().eq('date', dStr);
+                    await logActivity('blocked', `חסימה הוסרה: ${formatHeDate(dStr)}`);
+                  } else {
+                    await supabase.from('blocked_dates').insert([{ date: dStr }]);
+                    await logActivity('block', `נחסם יום מלא: ${formatHeDate(dStr)}`);
+                  }
+                  fetchData();
+                }}
+                className="w-full mt-4 py-3 bg-red-50 text-red-600 rounded-2xl font-bold text-sm hover:bg-red-600 hover:text-white transition-all"
               >
-                <FaCalendarTimes />
-                <span className="hidden sm:inline">חסום תאריך</span>
+                חסום/שחרר יום מלא
               </button>
             </div>
-            
-            <style jsx global>{`
-              /* Prevent Android color inversion */
-              .rdp {
-                --rdp-cell-size: 36px;
-                --rdp-accent-color: #c9a961;
-                --rdp-background-color: #f5f5f5;
-                margin: 0;
-                direction: rtl;
-                filter: none !important;
-                color-scheme: light only !important;
-              }
-              @media (min-width: 768px) {
-                .rdp {
-                  --rdp-cell-size: 40px;
-                }
-              }
-              .rdp-months {
-                display: flex;
-                justify-content: center;
-              }
-              .rdp-month {
-                margin: 0;
-              }
-              .rdp-table {
-                width: 100%;
-                max-width: none;
-                border-collapse: collapse;
-              }
-              .rdp-head_cell {
-                font-weight: 600;
-                font-size: 0.75rem;
-                padding: 0.4rem;
-                color: #333333 !important;
-              }
-              @media (min-width: 768px) {
-                .rdp-head_cell {
-                  font-size: 0.875rem;
-                  padding: 0.5rem;
-                }
-              }
-              .rdp-cell {
-                width: var(--rdp-cell-size);
-                height: var(--rdp-cell-size);
-                position: relative;
-              }
-              /* Force dark text color for all available days */
-              .rdp-button {
-                width: 100%;
-                height: 100%;
-                border-radius: 0.5rem;
-                border: 1px solid transparent;
-                background-color: transparent;
-                color: #000000 !important;
-                font-size: 0.75rem;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-weight: 500;
-              }
-              @media (min-width: 768px) {
-                .rdp-button {
-                  font-size: 0.875rem;
-                }
-              }
-              .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
-                background-color: #f5f5f5;
-                border-color: #c9a961;
-                color: #000000 !important;
-              }
-              /* Disabled days - clear gray background with darker text */
-              .rdp-button[disabled] {
-                opacity: 1 !important;
-                cursor: not-allowed;
-                color: #666666 !important;
-                background-color: #e5e5e5 !important;
-                border-color: #d0d0d0 !important;
-              }
-              /* Selected day - very bold with brand color */
-              .rdp-day_selected .rdp-button {
-                background-color: #c9a961 !important;
-                color: #ffffff !important;
-                font-weight: 700 !important;
-                border: 2px solid #b8964f !important;
-                box-shadow: 0 2px 4px rgba(201, 169, 97, 0.3);
-              }
-              .rdp-day_today .rdp-button {
-                font-weight: 700;
-                border: 2px solid #c9a961;
-                color: #000000 !important;
-              }
-              .rdp-day_today:not(.rdp-day_selected) .rdp-button {
-                color: #000000 !important;
-              }
-              .rdp-day_has-bookings .rdp-button {
-                background-image: radial-gradient(circle, #c9a961 2px, transparent 2px);
-                background-position: bottom center;
-                background-repeat: no-repeat;
-                color: #000000 !important;
-              }
-              .rdp-day_blocked .rdp-button {
-                background-image: radial-gradient(circle, #fecaca 2px, transparent 2px);
-                background-position: bottom center;
-                background-repeat: no-repeat;
-                color: #000000 !important;
-              }
-              .rdp-day_blocked.rdp-day_selected .rdp-button {
-                background-color: #c9a961 !important;
-                color: #ffffff !important;
-                font-weight: 700 !important;
-              }
-              .rdp-caption {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 0.5rem;
-                margin-bottom: 0.5rem;
-              }
-              .rdp-caption_label {
-                font-weight: 600;
-                font-size: 0.9rem;
-                color: #2c2c2c !important;
-              }
-              @media (min-width: 768px) {
-                .rdp-caption_label {
-                  font-size: 1rem;
-                }
-              }
-              .rdp-nav {
-                display: flex;
-                gap: 0.5rem;
-              }
-              .rdp-button_reset {
-                padding: 0.25rem 0.5rem;
-                border-radius: 0.25rem;
-                border: 1px solid #e0e0e0;
-                background-color: white;
-                cursor: pointer;
-                color: #2c2c2c !important;
-              }
-              .rdp-button_reset:hover {
-                background-color: #f5f5f5;
-              }
-              /* Stronger selectors for Android - Force colors on day elements */
-              .rdp-day {
-                color: #000000 !important;
-                background-color: transparent !important;
-                filter: none !important;
-              }
-              .rdp-day .rdp-button {
-                color: #000000 !important;
-                background-color: transparent !important;
-                filter: none !important;
-              }
-              .rdp-day_disabled,
-              .rdp-day_disabled .rdp-button {
-                color: #bbbbbb !important;
-                background-color: #f5f5f5 !important;
-                opacity: 1 !important;
-                filter: none !important;
-              }
-              .rdp-day_selected,
-              .rdp-day_selected .rdp-button {
-                background-color: #c9a961 !important; /* Adar's Gold */
-                color: #ffffff !important;
-                filter: none !important;
-              }
-              /* Ensure all day buttons have dark text unless selected */
-              .rdp-day:not(.rdp-day_selected) .rdp-button {
-                color: #000000 !important;
-                filter: none !important;
-              }
-              /* Past dates that are disabled */
-              .rdp-day_outside .rdp-button {
-                color: #999999 !important;
-                background-color: #f9f9f9 !important;
-                filter: none !important;
-              }
-              /* Force filter none on all calendar elements */
-              .rdp * {
-                filter: none !important;
-              }
-            `}</style>
-            
-            <DayPicker
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => {
-                if (date) {
-                  const normalized = normalizeDate(date);
-                  setSelectedDate(normalized);
-                }
-              }}
-              className="bg-white"
-              modifiers={{
-                hasBooking: bookingDates,
-                blocked: blockedDateObjects
-              }}
-              modifiersClassNames={{
-                hasBooking: 'has-bookings',
-                blocked: 'blocked'
-              }}
-            />
-          </div>
 
-          {/* Daily Agenda */}
-          <div className="bg-white rounded-2xl shadow-xl p-4 md:p-6">
-            <h2 className="text-xl md:text-2xl font-bold text-[#2c2c2c] mb-4">
-              יומן יומי - {formatDate(formatDateToString(selectedDate))}
-            </h2>
-            
-            {loading ? (
-              <div className="text-center py-8 text-[#666666]">טוען תורים...</div>
-            ) : dailyBookings.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-4xl mb-4">📅</div>
-                <p className="text-lg text-[#666666]">אין תורים לתאריך זה</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                {dailyBookings.map((booking) => (
-                  <div
-                    key={booking.id}
-                    className="border border-[#e0e0e0] rounded-lg p-3 md:p-4 bg-gradient-to-r from-white to-pink-50/30 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between gap-3 md:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 md:gap-3 mb-2 flex-wrap">
-                          <div className="text-xl md:text-2xl font-bold text-[#c9a961] whitespace-nowrap">
-                            {formatTime(booking.start_time)}
-                          </div>
-                          <div className="h-6 w-px bg-[#e0e0e0] hidden sm:block"></div>
-                          <div className="min-w-0">
-                            <div className="font-semibold text-[#2c2c2c] text-base md:text-lg truncate">
-                              {booking.customer_name}
-                            </div>
-                            <div className="text-xs md:text-sm text-[#666666] truncate">
-                              {booking.service_title}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 md:gap-4 text-xs md:text-sm text-[#666666] mt-2 flex-wrap">
-                          <span>{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</span>
-                          <span className="text-[#cccccc] hidden sm:inline">•</span>
-                          <span className="break-all">{booking.customer_phone}</span>
-                          <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${
-                            booking.status === 'confirmed' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {booking.status === 'confirmed' ? 'מאושר' : 'ממתין'}
-                          </span>
-                          {booking.is_verified === false && (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs whitespace-nowrap font-medium">
-                              ⚠️ NOT VERIFIED
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => handleWhatsApp(booking)}
-                          className="px-3 md:px-4 py-2 bg-[#25D366] hover:bg-[#20BA5A] text-white rounded-lg text-xs md:text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                          title="WhatsApp"
-                        >
-                          <FaWhatsapp className="w-4 h-4" />
-                          <span className="hidden sm:inline">WhatsApp</span>
-                        </button>
-                        <button
-                          onClick={() => handleCall(booking.customer_phone)}
-                          className="px-3 md:px-4 py-2 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg text-xs md:text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                          title="התקשר"
-                        >
-                          <FaPhone className="w-3 h-3" />
-                          <span className="hidden sm:inline">שיחה</span>
-                        </button>
-                        <button
-                          onClick={() => booking.id && handleCancelAndNotify(booking)}
-                          className="px-3 md:px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs md:text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                          title="בטל"
-                        >
-                          <FaTimes className="w-3 h-3" />
-                          <span className="hidden sm:inline">ביטול</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Block Date Picker Modal */}
-        {showBlockDatePicker && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBlockDatePicker(false)}>
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-[#2c2c2c]">בחר תאריך לחסימה</h3>
-                <button
-                  onClick={() => setShowBlockDatePicker(false)}
-                  className="text-[#666666] hover:text-[#2c2c2c]"
-                >
-                  <FaTimes className="w-5 h-5" />
-                </button>
-              </div>
-              <DayPicker
-                mode="single"
-                selected={dateToBlock}
-                onSelect={(date) => setDateToBlock(date)}
-                modifiers={{
-                  blocked: blockedDateObjects
-                }}
-                modifiersClassNames={{
-                  blocked: 'blocked'
-                }}
-                className="bg-white mb-4"
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowBlockDatePicker(false);
-                    setDateToBlock(undefined);
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800"><Sliders size={18}/> שעות מיוחדות</h2>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <input type="time" value={customHoursStartTime} onChange={e => setCustomHoursStartTime(e.target.value)} className="flex-1 bg-slate-50 border-none rounded-xl p-3 text-center font-bold" />
+                  <input type="time" value={customHoursEndTime} onChange={e => setCustomHoursEndTime(e.target.value)} className="flex-1 bg-slate-50 border-none rounded-xl p-3 text-center font-bold" />
+                </div>
+                <button 
+                  onClick={async () => {
+                    const dStr = toLocalDateString(selectedDate);
+                    await supabase.from('daily_schedules').upsert({ date: dStr, start_time: customHoursStartTime, end_time: customHoursEndTime });
+                    await logActivity('block', `שעות מיוחדות ל-${formatHeDate(dStr)}: ${customHoursStartTime}-${customHoursEndTime}`);
+                    fetchData();
                   }}
-                  className="flex-1 px-4 py-2 border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#2c2c2c] rounded-lg font-medium transition-colors"
+                  className="w-full py-3 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all"
                 >
-                  ביטול
-                </button>
-                <button
-                  onClick={() => dateToBlock && handleBlockDate(dateToBlock)}
-                  disabled={!dateToBlock || blockingDate}
-                  className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                    !dateToBlock || blockingDate
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : dateToBlock && blockedDates.some(bd => bd.date === formatDateToString(dateToBlock))
-                      ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                      : 'bg-red-600 hover:bg-red-700 text-white'
-                  }`}
-                >
-                  {blockingDate 
-                    ? 'מעבד...' 
-                    : dateToBlock && blockedDates.some(bd => bd.date === formatDateToString(dateToBlock))
-                    ? 'שחרר חסימה'
-                    : 'חסום תאריך'}
+                  קבע שעות ליום
                 </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Recent Activity Feed */}
-        <div className="mt-6 bg-white rounded-2xl shadow-xl p-4 md:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl md:text-2xl font-bold text-[#2c2c2c]">פעילות אחרונה</h3>
-            <button
-              onClick={fetchActivityLog}
-              className="px-3 py-1.5 text-sm bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-              title="רענן"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              רענן
-            </button>
-          </div>
-          {activities.length === 0 ? (
-            <p className="text-[#666666] text-center py-4">אין פעילות להצגה</p>
-          ) : (
-            <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {activities.map((activity) => {
-                // Determine activity type for styling
-                const activityType = activity.type;
-                const isNewBooking = activityType === 'new_booking';
-                const isVerified = activityType === 'verified';
-                const isCancelled = activityType === 'cancelled';
-                const isBlocked = activityType === 'blocked';
-                
-                // Check if this is a new booking that hasn't been verified
-                let isUnverified = false;
-                if (isNewBooking && activity.description.includes('תור חדש')) {
-                  // Extract customer name from description (format: "תור חדש: [name] ל-[service]")
-                  const match = activity.description.match(/תור חדש:\s*(.+?)\s*ל-/);
-                  if (match) {
-                    const customerName = match[1].trim();
-                    // Check if there's an unverified booking with this customer name
-                    const unverifiedBooking = bookings.find(
-                      b => b.customer_name === customerName && b.is_verified === false
-                    );
-                    isUnverified = !!unverifiedBooking;
-                  }
-                }
-                
-                // Check if it's a recognized customer (זיהוי חוזר)
-                const isRecognizedCustomer = activity.description.includes('זיהוי חוזר');
-                
-                // Get icon and color based on type
-                const getActivityIcon = () => {
-                  if (isNewBooking) return '📅';
-                  if (isVerified) return '✅';
-                  if (isCancelled) return '❌';
-                  if (isBlocked) return '🚫';
-                  return '📝';
-                };
-
-                const getActivityColor = () => {
-                  if (isNewBooking || isVerified) return 'text-green-600';
-                  if (isCancelled) return 'text-red-600';
-                  if (isBlocked) return 'text-orange-600';
-                  return 'text-blue-600';
-                };
-
-                const getActivityBgColor = () => {
-                  if (isNewBooking || isVerified) return 'bg-green-50 border-green-200';
-                  if (isCancelled) return 'bg-red-50 border-red-200';
-                  if (isBlocked) return 'bg-orange-50 border-orange-200';
-                  return 'bg-blue-50 border-blue-200';
-                };
-                
-                return (
-                  <div
-                    key={activity.id}
-                    className={`flex items-start gap-3 p-3 rounded-lg hover:opacity-90 transition-all border ${getActivityBgColor()}`}
-                  >
-                    <div className={`text-xl flex-shrink-0 ${getActivityColor()}`}>
-                      {getActivityIcon()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className={`text-sm md:text-base font-medium ${getActivityColor()}`}>
-                          {activity.description}
-                        </div>
-                        {isUnverified && (
-                          <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded whitespace-nowrap">
-                            ⚠️ NOT VERIFIED
-                          </span>
-                        )}
-                        {isRecognizedCustomer && (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded whitespace-nowrap">
-                            👤 Recognized Customer
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-[#666666] mt-1">{formatTimeAgo(new Date(activity.created_at))}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Blocked Dates Section */}
-        <div className="mt-6 bg-white rounded-2xl shadow-xl p-4 md:p-6">
-          <h3 className="text-xl font-bold text-[#2c2c2c] mb-4">תאריכים חסומים</h3>
-          {blockedDates.length === 0 ? (
-            <p className="text-[#666666] text-center py-4">אין תאריכים חסומים</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {blockedDates.map((blocked) => (
-                <div
-                  key={blocked.date}
-                  className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2"
-                >
-                  <span className="text-sm text-[#2c2c2c]">{formatDate(blocked.date)}</span>
-                  <button
-                    onClick={() => blocked.id && handleUnblockDate(blocked.id, blocked.date)}
-                    className="text-red-600 hover:text-red-700 text-sm font-medium"
-                    title="הסר חסימה"
-                  >
-                    <FaTimes className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Special Closures Section */}
-        <div className="mt-6 bg-white rounded-2xl shadow-xl p-4 md:p-6">
-          <h3 className="text-xl md:text-2xl font-bold text-[#2c2c2c] mb-4">חסימות מיוחדות</h3>
-          
-          {/* Tabs */}
-          <div className="flex gap-4 mb-6 border-b border-[#e0e0e0]">
-            <button
-              onClick={() => setSpecialClosureType('full')}
-              className={`px-4 py-2 font-medium transition-colors ${
-                specialClosureType === 'full'
-                  ? 'text-[#c9a961] border-b-2 border-[#c9a961]'
-                  : 'text-[#666666] hover:text-[#2c2c2c]'
-              }`}
-            >
-              חסימת יום מלא
-            </button>
-            <button
-              onClick={() => setSpecialClosureType('custom-hours')}
-              className={`px-4 py-2 font-medium transition-colors ${
-                specialClosureType === 'custom-hours'
-                  ? 'text-[#c9a961] border-b-2 border-[#c9a961]'
-                  : 'text-[#666666] hover:text-[#2c2c2c]'
-              }`}
-            >
-              הגדרת שעות ליום ספציפי
-            </button>
-          </div>
-
-          {/* Full Day Block Tab */}
-          {specialClosureType === 'full' && (
-            <div>
-              <p className="text-[#666666] mb-4">
-                לחצו על כפתור "חסום תאריך" בלוח השנה כדי לחסום יום מלא
-              </p>
-            </div>
-          )}
-
-          {/* Custom Daily Hours Tab */}
-          {specialClosureType === 'custom-hours' && (
-            <div className="space-y-6">
-              {/* Set Custom Hours Form */}
-              <div className="bg-[#f5f5f5] rounded-lg p-4">
-                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-2">הגדר שעות עבודה מותאמות</h4>
-                <p className="text-sm text-[#666666] mb-4">
-                  הגדר שעות פתיחה וסגירה ספציפיות לתאריך מסוים. השעות הללו יחליפו את שעות ברירת המחדל (09:00-18:00) עבור התאריך שנבחר.
-                </p>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                      תאריך
-                    </label>
-                    <DayPicker
-                      mode="single"
-                      selected={customHoursDate}
-                      onSelect={(date) => {
-                        setCustomHoursDate(date);
-                        // Load existing schedule if exists
-                        if (date) {
-                          const dateStr = formatDateToString(date);
-                          const existing = dailySchedules.find(s => s.date === dateStr);
-                          if (existing) {
-                            setCustomHoursStartTime(existing.start_time);
-                            setCustomHoursEndTime(existing.end_time);
-                          } else {
-                            setCustomHoursStartTime('09:00');
-                            setCustomHoursEndTime('18:00');
-                          }
-                        }
-                      }}
-                      className="bg-white rounded-lg p-2"
-                      modifiers={{
-                        blocked: blockedDateObjects
-                      }}
-                      modifiersClassNames={{
-                        blocked: 'blocked'
-                      }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                        שעת פתיחה
-                      </label>
-                      <input
-                        type="time"
-                        value={customHoursStartTime}
-                        onChange={(e) => setCustomHoursStartTime(e.target.value)}
-                        className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[#2c2c2c] mb-2">
-                        שעת סגירה
-                      </label>
-                      <input
-                        type="time"
-                        value={customHoursEndTime}
-                        onChange={(e) => setCustomHoursEndTime(e.target.value)}
-                        className="w-full border border-[#e0e0e0] rounded-lg px-4 py-2 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleSaveCustomHours}
-                    disabled={!customHoursDate || savingCustomHours}
-                    className="w-full px-4 py-2 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {savingCustomHours ? 'שומר...' : 'שמור שעות מותאמות'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Existing Custom Hours List */}
-              <div>
-                <h4 className="text-lg font-semibold text-[#2c2c2c] mb-4">שעות מותאמות קיימות</h4>
-                {dailySchedules.length === 0 ? (
-                  <p className="text-[#666666] text-center py-4">אין שעות מותאמות. השתמשו בטופס למעלה כדי להגדיר שעות מותאמות.</p>
+            {/* Safety Window - Updated with Delete Logic */}
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-red-600"><AlertTriangle size={18}/> חסימות עתידיות</h2>
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                {futureBlocked.length === 0 && futureSchedules.length === 0 ? (
+                  <p className="text-slate-400 text-sm italic text-center py-4">אין חסימות עתידיות</p>
                 ) : (
-                  <div className="space-y-2">
-                    {dailySchedules.map((schedule) => (
-                      <div
-                        key={schedule.id}
-                        className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3"
-                      >
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm font-medium text-[#2c2c2c]">
-                            {formatDate(schedule.date)}
-                          </span>
-                          <span className="text-sm text-[#666666]">
-                            {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
-                          </span>
+                  <>
+                    {futureBlocked.map(bd => (
+                      <div key={bd.id} className="flex items-center justify-between p-3 bg-red-50 rounded-2xl border border-red-100 group">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-bold text-red-700">{formatHeDate(bd.date)}</span>
+                            <span className="text-[10px] font-black uppercase text-red-400">יום חסום מלא</span>
                         </div>
-                        <button
-                          onClick={() => schedule.id && handleDeleteCustomHours(schedule.id, schedule.date)}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                          title="מחק"
-                        >
-                          <FaTimes className="w-4 h-4" />
+                        <button onClick={() => handleDeleteBlockedDate(bd.id!, bd.date)} className="p-2 text-red-300 hover:text-red-600 transition-colors bg-white rounded-xl shadow-sm">
+                            <X size={16} />
                         </button>
                       </div>
                     ))}
-                  </div>
+                    {futureSchedules.map(ds => (
+                      <div key={ds.id} className="flex items-center justify-between p-3 bg-yellow-50 rounded-2xl border border-yellow-100 group">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-bold text-yellow-800">{formatHeDate(ds.date)}</span>
+                            <span className="text-[10px] font-black uppercase text-yellow-600">{ds.start_time.slice(0,5)} - {ds.end_time.slice(0,5)}</span>
+                        </div>
+                        <button onClick={() => handleDeleteSchedule(ds.id!, ds.date)} className="p-2 text-yellow-300 hover:text-yellow-600 transition-colors bg-white rounded-xl shadow-sm">
+                            <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </>
                 )}
               </div>
             </div>
-          )}
+          </div>
+
+          <div className="lg:col-span-7 space-y-6">
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 min-h-[400px]">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-extrabold text-slate-900">לו"ז ל: {formatHeDate(toLocalDateString(selectedDate))}</h2>
+                <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-xs font-bold">{dailyBookings.length} תורים</span>
+              </div>
+              <div className="space-y-3">
+                {dailyBookings.length === 0 ? (
+                  <div className="py-20 text-center opacity-20"><CalendarIcon size={48} className="mx-auto mb-2" /><p className="font-bold">אין תורים</p></div>
+                ) : (
+                  dailyBookings.map(booking => (
+                    <div key={booking.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-[22px] border border-transparent hover:border-[#c9a961]/30 transition-all group">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-white w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm">
+                          <span className="text-sm font-black text-[#c9a961]">{booking.start_time.slice(0,5)}</span>
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 leading-tight">{booking.customer_name}</h4>
+                          <p className="text-xs text-slate-400 font-medium">{booking.service_title}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <a href={`tel:${booking.customer_phone}`} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-[#c9a961] transition-colors"><Phone size={18}/></a>
+                        <button onClick={() => {
+                          const phone = booking.customer_phone.startsWith('0') ? booking.customer_phone.slice(1) : booking.customer_phone;
+                          window.open(`https://wa.me/972${phone}`, '_blank');
+                        }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-green-500 transition-colors"><MessageCircle size={18}/></button>
+                        <button onClick={async () => {
+                          if (confirm('לבטל תור?')) {
+                            await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
+                            await logActivity('cancel', `בוטל: ${booking.customer_name}`);
+                            fetchData();
+                          }
+                        }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
+              <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800"><History size={18}/> פעילות אחרונה</h2>
+              <div className="space-y-6 relative before:absolute before:right-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-50">
+                {activities.map(act => (
+                  <div key={act.id} className="relative pr-8">
+                    <div className="absolute right-0 top-1 w-4 h-4 rounded-full bg-white border-2 border-[#c9a961] z-10 shadow-sm"></div>
+                    <p className="text-sm font-bold text-slate-800 leading-tight">{act.description}</p>
+                    <p className="text-[10px] text-slate-400 font-medium uppercase mt-1">
+                        {new Date(act.created_at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })} • {formatHeDate(toLocalDateString(new Date(act.created_at)))}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
