@@ -26,6 +26,73 @@ function StatCard({ title, value, icon: Icon, color }: any) {
   );
 }
 
+// --- LoginForm Component (The Missing Piece) ---
+function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (authError) {
+        setError('אימייל או סיסמה שגויים');
+        return;
+      }
+      if (data.session) onLoginSuccess();
+    } catch (err) {
+      setError('אירעה שגיאה בהתחברות');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#F2F2F7] px-4 font-sans">
+      <div className="bg-white rounded-[2rem] shadow-2xl p-10 max-w-md w-full border border-slate-50">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-[#c9a961] rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-[#c9a961]/20">
+            <Settings2 className="text-white w-8 h-8" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900">לוח בקרה</h1>
+          <p className="text-slate-400 mt-2">התחברי כדי לנהל את התורים</p>
+        </div>
+        <form onSubmit={handleLogin} className="space-y-5">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-slate-900 focus:ring-2 focus:ring-[#c9a961] transition-all"
+            placeholder="אימייל"
+            required
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-slate-900 focus:ring-2 focus:ring-[#c9a961] transition-all"
+            placeholder="סיסמה"
+            required
+          />
+          {error && <p className="text-red-500 text-sm text-center font-medium">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold shadow-xl transition-all transform active:scale-[0.98]"
+          >
+            {loading ? 'מתחבר...' : 'כניסה למערכת'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -69,12 +136,19 @@ export default function AdminPage() {
     setActivities(al || []);
   };
 
+  // --- Fixed Auth Sync ---
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setCheckingAuth(false);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setCheckingAuth(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
     return () => subscription.unsubscribe();
   }, []);
 
@@ -94,7 +168,6 @@ export default function AdminPage() {
     fetchData();
   };
 
-  // --- Logic for Indicators (ONLY FUTURE) ---
   const bookingDateObjects = useMemo(() => bookings.map(b => {
       const [y, m, d] = b.date.split('-').map(Number);
       return new Date(y, m - 1, d);
@@ -112,7 +185,6 @@ export default function AdminPage() {
       return new Date(y, m - 1, d);
   }), [dailySchedules, todayStr]);
 
-  // --- Logic for KPIs (ONLY FUTURE) ---
   const activeBlockedCount = useMemo(() => {
     return blockedDates.filter(bd => bd.date >= todayStr).length;
   }, [blockedDates, todayStr]);
@@ -125,8 +197,18 @@ export default function AdminPage() {
     return bookings.filter(b => b.date === dateStr).sort((a,b) => a.start_time.localeCompare(b.start_time));
   }, [bookings, selectedDate]);
 
-  if (checkingAuth) return null;
-  if (!session) return <div className="p-20 text-center font-sans">נא להתחבר...</div>;
+  // --- Auth Screen Render ---
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F2F2F7]">
+        <div className="w-10 h-10 border-4 border-[#c9a961] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginForm onLoginSuccess={() => fetchData()} />;
+  }
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#F2F2F7] font-sans pb-10">
