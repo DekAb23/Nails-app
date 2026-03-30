@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
 import { SiWaze } from 'react-icons/si';
-import { Instagram } from 'lucide-react';
+import { Instagram, Phone, Calendar, Check, X, Lock } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
@@ -65,55 +65,18 @@ export default function Home() {
 
   const selectedServiceData = services.find(s => s.id === selectedService);
 
-  // --- פונקציית שליחת התראות ---
   const sendConfirmationNotifications = async (booking: any) => {
     const formattedDate = format(parseDateString(booking.date), 'dd/MM');
-    
-    const customerMessage = `שלום ${booking.customer_name}, 
-נקבע לך תור אצל Adar Cosmetics
-${booking.service_title}
-בתאריך ${formattedDate} בשעה ${booking.start_time}
-בכתובת מור 5 א', קומה 6 דירה 25.
-
-שימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול. 
-
-קישור לאינסטגרם:
-https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
-
-    const adarMessage = `אדר, נקבע תור חדש!
-לקוחה: ${booking.customer_name}
-טיפול: ${booking.service_title}
-זמן: ${formattedDate} ב-${booking.start_time}
-טלפון: ${booking.customer_phone}`;
+    const customerMessage = `שלום ${booking.customer_name}, \nנקבע לך תור אצל Adar Cosmetics\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${booking.start_time}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול. \n\nקישור לאינסטגרם:\nhttps://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
+    const adarMessage = `אדר, נקבע תור חדש!\nלקוחה: ${booking.customer_name}\nטיפול: ${booking.service_title}\nזמן: ${formattedDate} ב-${booking.start_time}\nטלפון: ${booking.customer_phone}`;
 
     try {
-      await fetch('/api/sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: booking.customer_phone,
-          message: customerMessage,
-          isDirectMessage: true 
-        }),
-      });
-
-      await fetch('/api/sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: '0508917748',
-          message: adarMessage,
-          isDirectMessage: true
-        }),
-      });
-    } catch (error) {
-      console.error('Notification error:', error);
-    }
+      await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: booking.customer_phone, message: customerMessage, isDirectMessage: true })});
+      await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '0508917748', message: adarMessage, isDirectMessage: true })});
+    } catch (error) { console.error('Notification error:', error); }
   };
 
-  useEffect(() => {
-    fetchBlockedDates();
-  }, []);
+  useEffect(() => { fetchBlockedDates(); }, []);
 
   useEffect(() => {
     if (showMyAppointments) {
@@ -141,89 +104,34 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
   const fetchBlockedDates = async () => {
     setLoadingBlockedDates(true);
     try {
-      const { data, error } = await supabase
-        .from('blocked_dates')
-        .select('*');
-
-      if (error) {
-        console.error('Error fetching blocked dates:', error);
-      } else {
-        setBlockedDates(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoadingBlockedDates(false);
-    }
+      const { data } = await supabase.from('blocked_dates').select('*');
+      setBlockedDates(data || []);
+    } catch (error) { console.error('Error:', error); } finally { setLoadingBlockedDates(false); }
   };
 
   const fetchBlockedTimeSlotsForDate = async (date: Date) => {
     try {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const { data, error } = await supabase
-        .from('blocked_time_slots')
-        .select('*')
-        .eq('date', dateStr)
-        .order('start_time', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching blocked time slots:', error);
-        setBlockedTimeSlots([]);
-      } else {
-        setBlockedTimeSlots(data || []);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      setBlockedTimeSlots([]);
-    }
+      const { data } = await supabase.from('blocked_time_slots').select('*').eq('date', dateStr).order('start_time', { ascending: true });
+      setBlockedTimeSlots(data || []);
+    } catch (error) { console.error('Error:', error); }
   };
 
   const fetchDailyScheduleForDate = async (date: Date) => {
     try {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const { data, error } = await supabase
-        .from('daily_schedules')
-        .select('*')
-        .eq('date', dateStr)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          setDailySchedule(null);
-        } else {
-          console.error('Error fetching daily schedule:', error);
-          setDailySchedule(null);
-        }
-      } else {
-        setDailySchedule(data);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      setDailySchedule(null);
-    }
+      const { data, error } = await supabase.from('daily_schedules').select('*').eq('date', dateStr).single();
+      if (!error) setDailySchedule(data); else setDailySchedule(null);
+    } catch (error) { console.error('Error:', error); }
   };
 
   const fetchBookings = async (date: Date) => {
     setLoadingBookings(true);
     try {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('date', dateStr)
-        .neq('status', 'cancelled')
-        .order('start_time', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching bookings:', error);
-      } else {
-        setBookings(data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching bookings:', error);
-    } finally {
-      setLoadingBookings(false);
-    }
+      const { data } = await supabase.from('bookings').select('*').eq('date', dateStr).neq('status', 'cancelled').order('start_time', { ascending: true });
+      setBookings(data || []);
+    } catch (error) { console.error('Error fetching bookings:', error); } finally { setLoadingBookings(false); }
   };
 
   const parseDateString = (dateStr: string): Date => {
@@ -244,20 +152,16 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
     if (!selectedServiceData || !selectedDate) return [];
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
     if (blockedDates.some(bd => bd.date === dateStr)) return [];
-    
     const timeToMinutes = (time: string) => { const [h, m] = time.split(':').map(Number); return h * 60 + m; };
     const formatTime = (minutes: number) => { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`; };
-    
     const dayOfWeek = selectedDate.getDay();
     let workingStartMinutes = 9 * 60;
     let workingEndMinutes = dayOfWeek === 5 ? 12 * 60 : 18 * 60;
     if (dailySchedule) { workingStartMinutes = timeToMinutes(dailySchedule.start_time); workingEndMinutes = timeToMinutes(dailySchedule.end_time); }
     if (dayOfWeek === 6 && !dailySchedule) return [];
-
     const dateBlockedSlots = blockedTimeSlots.filter(bt => bt.date === dateStr).map(bt => ({ start: timeToMinutes(bt.start_time), end: timeToMinutes(bt.end_time) }));
     const duration = selectedServiceData.durationMinutes;
     const slots = [];
-    
     let currentPos = workingStartMinutes;
     while (currentPos + duration <= workingEndMinutes) {
       const slotEnd = currentPos + duration;
@@ -267,7 +171,6 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
       if (!isTaken && !isBlocked) slots.push({ start: startTimeStr, end: formatTime(slotEnd), key: startTimeStr });
       currentPos += 30;
     }
-
     const today = new Date();
     if (format(selectedDate, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')) {
       const nowMins = today.getHours() * 60 + today.getMinutes();
@@ -308,15 +211,16 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
   const handleVerification = async () => {
     setVerifying(true);
     const phoneDigits = customerPhone.replace(/\D/g, '');
-    const res = await fetch('/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneDigits, code: verificationCode, bookingId: currentBookingId })});
-    const result = await res.json();
-    if (result.verified) {
-      createVerifiedSession(phoneDigits);
-      const { data } = await supabase.from('bookings').select('*').eq('id', currentBookingId).single();
-      if (data) await sendConfirmationNotifications(data);
-      setStep('success');
-    } else setVerificationError('קוד אימות שגוי');
-    setVerifying(false);
+    try {
+      const res = await fetch('/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneDigits, code: verificationCode, bookingId: currentBookingId })});
+      const result = await res.json();
+      if (result.verified) {
+        createVerifiedSession(phoneDigits);
+        const { data } = await supabase.from('bookings').select('*').eq('id', currentBookingId).single();
+        if (data) await sendConfirmationNotifications(data);
+        setStep('success');
+      } else setVerificationError('קוד אימות שגוי');
+    } finally { setVerifying(false); }
   };
 
   const fetchMyAppointments = async (phone: string, skipVerification = false) => {
@@ -329,10 +233,26 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
       return;
     }
     setLoadingAppointments(true);
-    const { data } = await supabase.from('bookings').select('*').eq('customer_phone', phoneDigits).neq('service_id', 'verification_only').in('status', ['confirmed']).order('date');
-    setMyAppointments(data || []);
-    setAppointmentsVerified(true);
-    setLoadingAppointments(false);
+    try {
+      const { data } = await supabase.from('bookings').select('*').eq('customer_phone', phoneDigits).neq('service_id', 'verification_only').in('status', ['confirmed']).order('date');
+      setMyAppointments(data || []);
+      setAppointmentsVerified(true);
+    } finally { setLoadingAppointments(false); }
+  };
+
+  const handleAppointmentsVerification = async () => {
+    if (!appointmentsVerificationCode) return;
+    setAppointmentsVerifying(true);
+    const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+    try {
+      const res = await fetch('/api/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneDigits, code: appointmentsVerificationCode })});
+      const result = await res.json();
+      if (result.verified) {
+        createVerifiedSession(phoneDigits);
+        await fetchMyAppointments(appointmentsPhone, true);
+        setAppointmentsNeedsVerification(false);
+      } else setAppointmentsVerificationError('קוד שגוי');
+    } finally { setAppointmentsVerifying(false); }
   };
 
   const handleCancelAppointment = async (id: string) => {
@@ -348,16 +268,13 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
 
   return (
     <div dir="rtl" className="min-h-screen">
-      {/* My Appointments Button */}
       <button
         onClick={() => { setShowMyAppointments(true); setMyAppointments([]); setAppointmentsPhone(''); setAppointmentsVerified(false); setAppointmentsNeedsVerification(false); }}
         className="fixed top-4 left-4 md:left-6 z-50 bg-[#c9a961] hover:bg-[#b8964f] text-white px-4 py-2 rounded-full shadow-lg transition-all text-sm font-medium flex items-center gap-2"
       >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-        התורים שלי
+        <Calendar size={18} /> התורים שלי
       </button>
 
-      {/* Hero Section */}
       <div className="relative w-full overflow-hidden">
         <div className="absolute inset-0">
           <Image src="/hero-bg.jpeg" alt="Adar Cosmetics" fill priority className="object-cover" quality={90} />
@@ -383,9 +300,7 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
               </svg>
             </a>
             <a href="tel:0508917748" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#c9a961] hover:bg-[#b8964f] shadow-lg flex items-center justify-center transition-all transform hover:scale-110 active:scale-95">
-              <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
+              <Phone size={28} className="text-white" />
             </a>
             <a href="https://waze.com/ul?q=מור 5, אור עקיבא" target="_blank" rel="noopener noreferrer" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#33CCFF] hover:bg-[#2BB8E6] shadow-lg flex items-center justify-center transition-all transform hover:scale-110 active:scale-95">
               <SiWaze className="w-7 h-7 md:w-8 md:h-8 text-white" />
@@ -423,7 +338,7 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
                 ))}
               </div>
             )}
-            <div className="flex justify-center"><button onClick={() => setStep('contact')} disabled={!selectedDate || !selectedTime} className={`px-12 py-4 rounded-sm font-medium transition-all uppercase text-sm ${selectedDate && selectedTime ? 'bg-[#c9a961] text-white' : 'bg-[#e8e8e8] text-[#b0b0b0]'}`}>המשך</button></div>
+            <div className="flex justify-center"><button onClick={handleConfirmBooking} disabled={!selectedDate || !selectedTime} className={`px-12 py-4 rounded-sm font-medium transition-all uppercase text-sm ${selectedDate && selectedTime ? 'bg-[#c9a961] text-white' : 'bg-[#e8e8e8] text-[#b0b0b0]'}`}>המשך</button></div>
           </div>
         ) : step === 'contact' ? (
           <div className="space-y-8">
@@ -437,15 +352,15 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
           </div>
         ) : step === 'verification' ? (
           <div className="flex flex-col items-center py-10 space-y-6">
-            <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center text-white text-3xl shadow-lg">🔑</div>
+            <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center text-white text-3xl shadow-lg"><Lock size={32} /></div>
             <h2 className="text-2xl md:text-3xl font-bold text-[#2c2c2c]">הזן קוד אימות</h2>
             <p className="text-[#666666]">שלחנו קוד למספר {customerPhone}</p>
-            <input type="text" maxLength={4} value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))} className="w-full max-w-[200px] border-b-4 border-[#c9a961] text-center text-4xl font-bold outline-none" dir="ltr" />
+            <input type="text" maxLength={4} value={verificationCode} onChange={(e) => { setVerificationCode(e.target.value.replace(/\D/g, '')); setVerificationError(''); }} className="w-full max-w-[200px] border-b-4 border-[#c9a961] text-center text-4xl font-bold outline-none" dir="ltr" />
             <button onClick={handleVerification} disabled={verifying || verificationCode.length !== 4} className="w-full max-w-sm py-4 bg-[#c9a961] text-white rounded-xl font-bold shadow-lg">אמת תור</button>
           </div>
         ) : step === 'success' ? (
           <div className="text-center py-20 space-y-6 bg-green-50 rounded-2xl border border-green-100">
-            <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center mx-auto text-white text-3xl shadow-lg">✓</div>
+            <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center mx-auto text-white text-3xl shadow-lg"><Check size={32} /></div>
             <h2 className="text-3xl font-bold text-[#2c2c2c]">התור נקבע בהצלחה!</h2>
             <p className="text-green-700 px-4">תודה שקבעת תור! שלחנו לך SMS עם הפרטים וקישור לאינסטגרם.</p>
             <button onClick={() => window.location.reload()} className="px-10 py-4 bg-[#c9a961] text-white rounded-xl font-bold shadow-md">קבע תור נוסף</button>
@@ -453,7 +368,6 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
         ) : null}
       </main>
 
-      {/* Footer עם לינק סודי לניהול */}
       <footer className="w-full py-8 border-t border-[#f0f0f0] mt-12 flex justify-center items-center">
         <a 
           href="/admin" 
@@ -463,14 +377,13 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
         </a>
       </footer>
 
-      {/* My Appointments Modal */}
       {showMyAppointments && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowMyAppointments(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="bg-[#c9a961] text-white px-6 py-4 flex items-center justify-between">
               <h2 className="text-xl font-bold">התורים שלי</h2>
               <button onClick={() => setShowMyAppointments(false)} className="text-white hover:text-gray-200">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                <X size={24} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
@@ -479,14 +392,14 @@ https://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
                   <p className="font-medium text-[#2c2c2c]">אימות נדרש</p>
                   <p className="text-sm text-[#666666]">נשלח קוד למספר {appointmentsPhone}</p>
                   <input type="text" maxLength={4} value={appointmentsVerificationCode} onChange={(e) => setAppointmentsVerificationCode(e.target.value.replace(/\D/g, ''))} className="w-full border rounded-lg px-4 py-3 text-center text-2xl outline-none" dir="ltr" />
-                  <button onClick={() => handleAppointmentsVerification()} className="w-full py-3 bg-[#c9a961] text-white rounded-lg font-medium">אמת</button>
+                  <button onClick={handleAppointmentsVerification} className="w-full py-3 bg-[#c9a961] text-white rounded-lg font-medium">אמת</button>
                 </div>
               ) : !appointmentsVerified ? (
                 <div className="space-y-4">
                   <label className="block text-sm font-medium text-[#2c2c2c]">מספר טלפון</label>
                   <div className="flex gap-2">
                     <input type="tel" value={appointmentsPhone} onChange={(e) => setAppointmentsPhone(e.target.value)} placeholder="0501234567" className="flex-1 border border-[#e0e0e0] rounded-lg px-4 py-3 outline-none" dir="ltr" />
-                    <button onClick={() => handleSearchAppointments()} className="px-6 py-3 bg-[#c9a961] text-white rounded-lg font-medium">חפש</button>
+                    <button onClick={() => fetchMyAppointments(appointmentsPhone)} className="px-6 py-3 bg-[#c9a961] text-white rounded-lg font-medium">חפש</button>
                   </div>
                 </div>
               ) : (
