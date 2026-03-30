@@ -153,10 +153,9 @@ export default function AdminPage() {
 
   useEffect(() => { if (session) fetchData(); }, [session]);
 
-  const handleDeleteSchedule = async (id: string, dateStr: string) => {
+  const handleDeleteSchedule = async (id: string | undefined, dateStr: string) => {
     if (!confirm('לבטל את שעות העבודה המיוחדות ליום זה?')) return;
     
-    // מחיקה לפי תאריך היא הבטוחה ביותר
     const { error } = await supabase.from('daily_schedules').delete().eq('date', dateStr);
     if (!error) {
       setDailySchedules(prev => prev.filter(ds => ds.date !== dateStr));
@@ -167,10 +166,9 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteBlockedDate = async (id: string, dateStr: string) => {
+  const handleDeleteBlockedDate = async (id: string | undefined, dateStr: string) => {
     if (!confirm('לפתוח את היום החסום?')) return;
     
-    // שינוי קריטי: מחיקה לפי תאריך בלבד לעקיפת בעיות ID והרשאות
     const { error } = await supabase
       .from('blocked_dates')
       .delete()
@@ -331,7 +329,7 @@ export default function AdminPage() {
                             <span className="text-sm font-bold text-red-700">{formatHeDate(bd.date)}</span>
                             <span className="text-[10px] font-black uppercase text-red-400">יום חסום מלא</span>
                         </div>
-                        <button onClick={() => handleDeleteBlockedDate(bd.id!, bd.date)} className="p-2 text-red-300 hover:text-red-600 transition-colors bg-white rounded-xl shadow-sm">
+                        <button onClick={() => handleDeleteBlockedDate(bd.id, bd.date)} className="p-2 text-red-300 hover:text-red-600 transition-colors bg-white rounded-xl shadow-sm">
                             <X size={16} />
                         </button>
                       </div>
@@ -342,7 +340,7 @@ export default function AdminPage() {
                             <span className="text-sm font-bold text-yellow-800">{formatHeDate(ds.date)}</span>
                             <span className="text-[10px] font-black uppercase text-yellow-600">{ds.start_time.slice(0,5)} - {ds.end_time.slice(0,5)}</span>
                         </div>
-                        <button onClick={() => handleDeleteSchedule(ds.id!, ds.date)} className="p-2 text-yellow-300 hover:text-yellow-600 transition-colors bg-white rounded-xl shadow-sm">
+                        <button onClick={() => handleDeleteSchedule(ds.id, ds.date)} className="p-2 text-yellow-300 hover:text-yellow-600 transition-colors bg-white rounded-xl shadow-sm">
                             <X size={16} />
                         </button>
                       </div>
