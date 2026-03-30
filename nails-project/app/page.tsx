@@ -89,6 +89,55 @@ export default function Home() {
 
   const selectedServiceData = services.find(s => s.id === selectedService);
 
+  // --- פונקציית שליחת התראות ---
+  const sendConfirmationNotifications = async (booking: any) => {
+    const formattedDate = format(parseDateString(booking.date), 'dd/MM');
+    
+    // 1. הודעה ללקוחה (בפורמט שביקשת)
+    const customerMessage = `שלום ${booking.customer_name}, 
+נקבע לך תור אצל Adar Cosmetics
+${booking.service_title}
+בתאריך ${formattedDate} בשעה ${booking.start_time}
+בכתובת מור 5 א', קומה 6 דירה 25.
+
+שימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול. 
+תודה
+Adar Cosmetics`;
+
+    // 2. הודעה לאדר (התראה על תור חדש)
+    const adarMessage = `אדר, נקבע תור חדש!
+לקוחה: ${booking.customer_name}
+טיפול: ${booking.service_title}
+זמן: ${formattedDate} ב-${booking.start_time}
+טלפון: ${booking.customer_phone}`;
+
+    try {
+      // שליחה ללקוחה
+      await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: booking.customer_phone,
+          message: customerMessage,
+          isDirectMessage: true 
+        }),
+      });
+
+      // שליחה לאדר (טלפון המנהלת)
+      await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: '0508917748', // המספר של אדר
+          message: adarMessage,
+          isDirectMessage: true
+        }),
+      });
+    } catch (error) {
+      console.error('Notification error:', error);
+    }
+  };
+
   // Fetch blocked dates on component mount
   useEffect(() => {
     fetchBlockedDates();
@@ -564,19 +613,6 @@ export default function Home() {
         verification_code: verificationCode || undefined,
       };
 
-      // Log what we're sending
-      console.log('Attempting to save booking with data:', JSON.stringify(newBooking, null, 2));
-      console.log('Booking fields:', {
-        service_id: newBooking.service_id,
-        service_title: newBooking.service_title,
-        service_duration: newBooking.service_duration,
-        date: newBooking.date,
-        start_time: newBooking.start_time,
-        end_time: newBooking.end_time,
-        customer_name: newBooking.customer_name,
-        customer_phone: newBooking.customer_phone,
-      });
-
       const { data, error } = await supabase
         .from('bookings')
         .insert([newBooking])
@@ -584,48 +620,31 @@ export default function Home() {
         .single();
 
       if (error) {
-        // Detailed error logging
         console.error('=== SUPABASE ERROR DETAILS ===');
-        console.error('Error code:', error.code);
-        console.error('Error message:', error.message);
-        console.error('Error details:', error.details);
-        console.error('Error hint:', error.hint);
         console.error('Full error object:', JSON.stringify(error, null, 2));
-        console.error('Data that was sent:', JSON.stringify(newBooking, null, 2));
-        console.error('============================');
-        
-        // Show user-friendly error with details
-        const errorMsg = error.message || 'Unknown error';
-        const errorDetails = error.details ? ` (${error.details})` : '';
-        alert(`אירעה שגיאה בשמירת התור:\n${errorMsg}${errorDetails}\n\nנא לבדוק את הקונסול לפרטים נוספים.`);
+        alert(`אירעה שגיאה בשמירת התור.`);
         setSavingBooking(false);
         return;
       }
 
-      console.log('Booking saved successfully:', data);
-
       if (data?.id) {
-        // Format date and time for activity log
         const formattedDate = format(selectedDate, 'dd/MM/yyyy');
         const formattedTime = selectedSlot.start.slice(0, 5); // HH:mm format
         
-        // Add activity log entries
         if (hasActiveSession) {
-          // Trusted user - log as recognized customer
           await logActivity('verified', `לקוחה מוכרת חזרה: ${customerName.trim()} (זוהתה ללא SMS)`);
           await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
           
-          // Refresh bookings
+          // --- שליחת SMS ללקוחה מוכרת והתראה לאדר ---
+          await sendConfirmationNotifications(data);
+
           if (selectedDate) {
             await fetchBookings(selectedDate);
           }
           
           setStep('success');
         } else {
-          // New user - log as new booking
           await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
-          
-          // Go to verification step
           setCurrentBookingId(data.id);
           setStep('verification');
         }
@@ -635,15 +654,8 @@ export default function Home() {
         return;
       }
     } catch (error: any) {
-      console.error('=== GENERAL ERROR IN BOOKING PROCESS ===');
-      console.error('Error type:', error?.constructor?.name);
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
-      console.error('Full error:', JSON.stringify(error, null, 2));
-      console.error('==========================================');
-      
-      const errorMsg = error?.message || 'Unknown error occurred';
-      alert(`אירעה שגיאה בתהליך ההזמנה:\n${errorMsg}\n\nנא לבדוק את הקונסול לפרטים נוספים.`);
+      console.error('Booking error:', error);
+      alert(`אירעה שגיאה בתהליך ההזמנה.`);
     } finally {
       setSavingBooking(false);
     }
@@ -666,7 +678,6 @@ export default function Home() {
     try {
       const customerPhoneDigits = customerPhone.replace(/\D/g, '');
       
-      // Use unified verification API
       const verifyResponse = await fetch('/api/verify', {
         method: 'POST',
         headers: {
@@ -687,31 +698,25 @@ export default function Home() {
         return;
       }
 
-      // Create verified session
       createVerifiedSession(customerPhoneDigits);
 
-      // Get booking details for activity log
       const { data: bookingData } = await supabase
         .from('bookings')
-        .select('date, start_time')
+        .select('*')
         .eq('id', currentBookingId)
         .single();
 
       if (bookingData) {
-        const formattedDate = format(parseDateString(bookingData.date), 'dd/MM/yyyy');
-        const formattedTime = bookingData.start_time.slice(0, 5); // HH:mm format
-        
-        // Add activity log entry
         await logActivity('verified', `תור אומת: ${customerName.trim()} ל-${selectedServiceData?.title}`);
-        await logActivity('new_booking', `תור חדש: ${customerName.trim()} ל-${selectedServiceData?.title} בתאריך ${formattedDate} בשעה ${formattedTime}`);
+        
+        // --- שליחת SMS ללקוחה חדשה והתראה לאדר אחרי אימות ---
+        await sendConfirmationNotifications(bookingData);
       }
 
-      // Refresh bookings
       if (selectedDate) {
         await fetchBookings(selectedDate);
       }
 
-      // Move to success step
       setStep('success');
       setVerificationCode('');
       setCurrentBookingId(null);
@@ -736,16 +741,15 @@ export default function Home() {
       // Generate and send verification code
       const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
       
-      // Create a temporary unverified booking entry for verification purposes
       try {
-        // Use a hidden/special service title for verification rows to prevent display issues
+        // Create hidden verification record
         await supabase
           .from('bookings')
           .insert([{
             service_id: 'verification_only',
             service_title: 'אימות מערכת',
             service_duration: 0,
-            date: '1970-01-01', // Date in the past
+            date: '1970-01-01',
             start_time: '00:00',
             end_time: '00:00',
             customer_name: 'אימות',
@@ -756,7 +760,6 @@ export default function Home() {
             cancellation_token: uuidv4(),
           }]);
         
-        // Send SMS
         await fetch('/api/sms', {
           method: 'POST',
           headers: {
@@ -769,8 +772,6 @@ export default function Home() {
           }),
         });
         
-        // החלק שמתוקן: לא שומרים את הקוד ב-state כדי שלא יופיע על המסך
-        // setAppointmentsVerificationCode(verificationCode); 
       } catch (error) {
         console.error('Error setting up verification:', error);
         alert('אירעה שגיאה בהגדרת האימות.');
@@ -786,7 +787,7 @@ export default function Home() {
         .from('bookings')
         .select('*')
         .eq('customer_phone', phoneDigits)
-        .neq('service_id', 'verification_only') // החלק שמתוקן: מסנן את שורות האימות
+        .neq('service_id', 'verification_only')
         .in('status', ['pending', 'confirmed'])
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
@@ -826,7 +827,6 @@ export default function Home() {
     try {
       const phoneDigits = appointmentsPhone.replace(/\D/g, '');
       
-      // Use unified verification API
       const verifyResponse = await fetch('/api/verify', {
         method: 'POST',
         headers: {
@@ -846,10 +846,7 @@ export default function Home() {
         return;
       }
 
-      // Create verified session
       createVerifiedSession(phoneDigits);
-      
-      // Now fetch appointments
       await fetchMyAppointments(phoneDigits, true);
       setAppointmentsNeedsVerification(false);
       setAppointmentsVerificationCode('');
@@ -868,7 +865,6 @@ export default function Home() {
 
     setCancellingAppointmentId(bookingId);
     try {
-      // Fetch booking details first for activity log
       const { data: booking } = await supabase
         .from('bookings')
         .select('customer_name, date, start_time')
@@ -884,17 +880,13 @@ export default function Home() {
         console.error('Error cancelling appointment:', error);
         alert('אירעה שגיאה בביטול התור. נא לנסות שוב.');
       } else {
-        // Add activity log entry
         if (booking && booking.date && booking.start_time) {
           const formattedDate = format(parseDateString(booking.date), 'dd/MM/yyyy');
-          const formattedTime = booking.start_time.slice(0, 5); // HH:mm format
+          const formattedTime = booking.start_time.slice(0, 5); 
           await logActivity('cancel', `בוטל תור: ${booking.customer_name} שהיה קבוע ל-${formattedDate} בשעה ${formattedTime}`);
-        } else if (booking) {
-          await logActivity('cancel', `בוטל תור: ${booking.customer_name}`);
         }
 
         alert('התור בוטל בהצלחה');
-        // Refresh the appointments list
         const phoneDigits = appointmentsPhone.replace(/\D/g, '');
         fetchMyAppointments(phoneDigits, true);
       }
@@ -908,10 +900,6 @@ export default function Home() {
 
   const formatDateString = (dateStr: string): string => {
     const date = parseDateString(dateStr);
-    const hebrewMonths = [
-      'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
-      'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
-    ];
     return `${date.getDate()} ${hebrewMonths[date.getMonth()]}`;
   };
 
@@ -940,7 +928,6 @@ export default function Home() {
       {showMyAppointments && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowMyAppointments(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
             <div className="bg-[#c9a961] text-white px-6 py-4 flex items-center justify-between">
               <h2 className="text-xl font-bold">התורים שלי</h2>
               <button
@@ -953,7 +940,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Modal Content */}
             <div className="flex-1 overflow-y-auto p-6">
               {appointmentsNeedsVerification ? (
                 <div className="space-y-4">
@@ -966,7 +952,6 @@ export default function Home() {
                     </p>
                   </div>
                   
-                  {/* Verification Code Input */}
                   <div className="space-y-2">
                     <label htmlFor="appointments-verification-code" className="block text-sm font-medium text-[#2c2c2c]">
                       קוד אימות
@@ -1022,7 +1007,6 @@ export default function Home() {
                 </div>
               ) : myAppointments.length === 0 && !loadingAppointments ? (
                 <div className="space-y-4">
-                  {/* Phone Input */}
                   <div className="space-y-2">
                     <label htmlFor="appointments-phone" className="block text-sm font-medium text-[#2c2c2c]">
                       מספר טלפון
@@ -1066,7 +1050,6 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Phone Display with Logout */}
                   <div className="bg-[#f5f5f5] rounded-lg p-3 flex items-center justify-between">
                     <div className="text-sm text-[#666666]">
                       תורים עבור: {appointmentsPhone}
@@ -1089,7 +1072,6 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* Appointments List */}
                   <div className="space-y-3">
                     {myAppointments.map((appointment) => (
                       <div
@@ -1126,17 +1108,10 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
-
-                  {myAppointments.length === 0 && (
-                    <p className="text-center text-[#666666] py-4">
-                      לא נמצאו תורים עבור מספר הטלפון הזה
-                    </p>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
             {myAppointments.length > 0 && (
               <div className="border-t border-[#e0e0e0] p-4">
                 <button
@@ -1160,35 +1135,25 @@ export default function Home() {
         </div>
       )}
 
-      {/* Hero Section with Background */}
+      {/* Hero Section */}
       <div className="relative w-full overflow-hidden">
-        {/* Background Image */}
         <div className="absolute inset-0">
-        <Image
+          <Image
             src="/hero-bg.jpeg"
             alt="Adar Cosmetics Background"
             fill
-          priority
+            priority
             className="object-cover"
             quality={90}
           />
         </div>
-        
-        {/* Dark Overlay for Text Readability */}
         <div className="absolute inset-0 bg-black/40" />
-        
-        {/* Fade Effect at Bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-white to-transparent z-10" />
-        
-        {/* Hero Content */}
         <div className="relative px-4 py-12 md:py-16 flex flex-col items-center justify-center min-h-[60vh] md:min-h-[70vh]">
-          {/* White Rounded Box with Logo/Name */}
           <div className="bg-white rounded-2xl shadow-xl px-8 py-10 md:px-12 md:py-14 mb-8 max-w-md w-full text-center">
             <h1 className="text-4xl md:text-5xl font-playfair font-medium tracking-[0.1em] text-[#2c2c2c] mb-4" style={{ fontFamily: 'var(--font-playfair)' }}>
               ADAR COSMETICS
-          </h1>
-            
-            {/* Address with Map Pin Icon */}
+            </h1>
             <div className="flex items-center justify-center gap-2 text-[#666666] text-sm md:text-base">
               <svg className="w-5 h-5 text-[#c9a961]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -1198,75 +1163,36 @@ export default function Home() {
             </div>
           </div>
           
-          {/* Action Buttons - Circular Contact Buttons */}
           <div className="flex items-center justify-center gap-4 md:gap-6 relative z-20 pointer-events-auto">
-            {/* WhatsApp Button */}
-            <a
-              href="https://wa.me/972508917748"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#25D366] hover:bg-[#20BA5A] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
-              aria-label="WhatsApp"
-            >
+            <a href="https://wa.me/972508917748" target="_blank" rel="noopener noreferrer" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#25D366] hover:bg-[#20BA5A] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95">
               <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
               </svg>
             </a>
-            
-            {/* Call Button */}
-            <a
-              href="tel:0508917748"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#c9a961] hover:bg-[#b8964f] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
-              aria-label="Call"
-            >
+            <a href="tel:0508917748" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#c9a961] hover:bg-[#b8964f] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95">
               <svg className="w-7 h-7 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
             </a>
-            
-            {/* Navigate Button - Waze */}
-            <a
-              href="https://waze.com/ul?q=מור 5, אור עקיבא"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#33CCFF] hover:bg-[#2BB8E6] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
-              aria-label="Navigate with Waze"
-            >
+            <a href="https://waze.com/ul?q=מור 5, אור עקיבא" target="_blank" rel="noopener noreferrer" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#33CCFF] hover:bg-[#2BB8E6] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95">
               <SiWaze className="w-7 h-7 md:w-8 md:h-8 text-white" />
             </a>
-            
-            {/* Instagram Button */}
-            <a
-              href="https://www.instagram.com/adar_abergel_cosmetics/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-[#E1306C] to-[#C13584] hover:from-[#C13584] hover:to-[#833AB4] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95"
-              aria-label="Instagram"
-            >
+            <a href="https://www.instagram.com/adar_abergel_cosmetics/" target="_blank" rel="noopener noreferrer" className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-[#E1306C] to-[#C13584] hover:from-[#C13584] hover:to-[#833AB4] shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center transform hover:scale-110 active:scale-95">
               <Instagram className="w-7 h-7 md:w-8 md:h-8 text-white" />
             </a>
           </div>
         </div>
       </div>
       
-      {/* Main Content */}
       <main className="w-full max-w-2xl mx-auto px-4 py-8 md:py-12 space-y-8">
-
         {step === 'services' ? (
           <>
-            {/* Services Section */}
             <div className="space-y-4">
               {services.map((service) => (
                 <div
                   key={service.id}
                   onClick={() => setSelectedService(service.id)}
-                  className={`
-                    border rounded-lg bg-white p-6 md:p-8 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer
-                    ${selectedService === service.id 
-                      ? 'border-[#c9a961] border-2 shadow-md ring-2 ring-[#c9a961] ring-opacity-20' 
-                      : 'border-[#e0e0e0] border'
-                    }
-                  `}
+                  className={`border rounded-lg bg-white p-6 md:p-8 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer ${selectedService === service.id ? 'border-[#c9a961] border-2 shadow-md ring-2 ring-[#c9a961] ring-opacity-20' : 'border-[#e0e0e0] border'}`}
                 >
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
                     <div className="space-y-2">
@@ -1281,40 +1207,21 @@ export default function Home() {
                 </div>
               ))}
             </div>
-
-            {/* Continue Button */}
             <div className="flex justify-center">
-              <button
-                onClick={handleContinue}
-                disabled={!selectedService}
-                className={`
-                  px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm
-                  ${selectedService
-                    ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100'
-                    : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'
-                  }
-                `}
-              >
+              <button onClick={handleContinue} disabled={!selectedService} className={`px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm ${selectedService ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100' : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'}`}>
                 המשך לבחירת זמן
               </button>
             </div>
           </>
         ) : step === 'calendar' ? (
           <>
-            {/* Calendar Section */}
             <div className="space-y-8">
-              {/* Back Button */}
-              <button
-                onClick={handleBack}
-                className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2"
-              >
+              <button onClick={handleBack} className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2">
                 <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
                 חזרה
               </button>
-
-              {/* Selected Service Info */}
               {selectedServiceData && (
                 <div className="border border-[#e0e0e0] rounded-lg bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-medium text-[#2c2c2c] mb-2">{selectedServiceData.title}</h3>
@@ -1325,333 +1232,64 @@ export default function Home() {
                   </div>
                 </div>
               )}
-
-              {/* Date Selection - Calendar */}
               <div className="space-y-4">
                 <h2 className="text-xl font-medium text-[#2c2c2c]">בחר תאריך</h2>
                 <div className="flex justify-center">
-                  <style jsx global>{`
-                    /* Prevent Android color inversion */
-                    .rdp {
-                      --rdp-cell-size: 40px;
-                      --rdp-accent-color: #c9a961;
-                      --rdp-background-color: #f5f5f5;
-                      --rdp-outline: 2px solid var(--rdp-accent-color);
-                      --rdp-outline-selected: 2px solid var(--rdp-accent-color);
-                      margin: 0;
-                      direction: rtl;
-                      filter: none !important;
-                      color-scheme: light only !important;
-                    }
-                    .rdp-months {
-                      display: flex;
-                      justify-content: center;
-                    }
-                    .rdp-month {
-                      margin: 0;
-                    }
-                    .rdp-table {
-                      width: 100%;
-                      max-width: none;
-                      border-collapse: collapse;
-                    }
-                    .rdp-head_cell {
-                      font-weight: 600;
-                      font-size: 0.875rem;
-                      padding: 0.5rem;
-                      color: #333333 !important;
-                    }
-                    .rdp-cell {
-                      width: var(--rdp-cell-size);
-                      height: var(--rdp-cell-size);
-                      position: relative;
-                    }
-                    /* Force dark text color for all available days */
-                    .rdp-button {
-                      width: 100%;
-                      height: 100%;
-                      border-radius: 0.5rem;
-                      border: 1px solid transparent;
-                      background-color: transparent;
-                      color: #000000 !important;
-                      font-size: 0.875rem;
-                      font-weight: 500;
-                      cursor: pointer;
-                      transition: all 0.2s;
-                    }
-                    .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
-                      background-color: #f5f5f5;
-                      border-color: #c9a961;
-                      color: #000000 !important;
-                    }
-                    /* Disabled days - clear gray background with darker text */
-                    .rdp-button[disabled] {
-                      opacity: 1 !important;
-                      cursor: not-allowed;
-                      color: #666666 !important;
-                      background-color: #e5e5e5 !important;
-                      border-color: #d0d0d0 !important;
-                    }
-                    /* Selected day - very bold with brand color */
-                    .rdp-day_selected .rdp-button {
-                      background-color: #c9a961 !important;
-                      color: #ffffff !important;
-                      font-weight: 700 !important;
-                      border: 2px solid #b8964f !important;
-                      box-shadow: 0 2px 4px rgba(201, 169, 97, 0.3);
-                    }
-                    .rdp-day_selected .rdp-button:hover {
-                      background-color: #b8964f !important;
-                      color: #ffffff !important;
-                    }
-                    .rdp-day_today .rdp-button:not(.rdp-day_selected) {
-                      font-weight: 700;
-                      color: #000000 !important;
-                      border: 2px solid #c9a961;
-                      background-color: transparent;
-                    }
-                    .rdp-day_today .rdp-button:hover:not(.rdp-day_selected) {
-                      background-color: #faf8f3;
-                      border-color: #c9a961;
-                      color: #000000 !important;
-                    }
-                    .rdp-day_today.rdp-day_selected .rdp-button {
-                      border: 2px solid #b8964f !important;
-                    }
-                    .rdp-caption {
-                      display: flex;
-                      align-items: center;
-                      justify-content: space-between;
-                      padding: 0.5rem;
-                      margin-bottom: 0.5rem;
-                    }
-                    .rdp-caption_label {
-                      font-weight: 600;
-                      font-size: 1rem;
-                      color: #2c2c2c !important;
-                    }
-                    .rdp-nav {
-                      display: flex;
-                      gap: 0.5rem;
-                    }
-                    .rdp-button_reset {
-                      padding: 0.25rem 0.5rem;
-                      border-radius: 0.25rem;
-                      border: 1px solid #e0e0e0;
-                      background-color: white;
-                      cursor: pointer;
-                      color: #2c2c2c !important;
-                    }
-                    .rdp-button_reset:hover {
-                      background-color: #f5f5f5;
-                    }
-                    /* Stronger selectors for Android - Force colors on day elements */
-                    .rdp-day {
-                      color: #000000 !important;
-                      background-color: transparent !important;
-                      filter: none !important;
-                    }
-                    .rdp-day .rdp-button {
-                      color: #000000 !important;
-                      background-color: transparent !important;
-                      filter: none !important;
-                    }
-                    .rdp-day_disabled,
-                    .rdp-day_disabled .rdp-button {
-                      color: #bbbbbb !important;
-                      background-color: #f5f5f5 !important;
-                      opacity: 1 !important;
-                      filter: none !important;
-                    }
-                    .rdp-day_selected,
-                    .rdp-day_selected .rdp-button {
-                      background-color: #c9a961 !important;
-                      color: #ffffff !important;
-                      filter: none !important;
-                    }
-                    /* Ensure all day buttons have dark text unless selected */
-                    .rdp-day:not(.rdp-day_selected) .rdp-button {
-                      color: #000000 !important;
-                      filter: none !important;
-                    }
-                    /* Past dates that are disabled */
-                    .rdp-day_outside .rdp-button {
-                      color: #999999 !important;
-                      background-color: #f9f9f9 !important;
-                      filter: none !important;
-                    }
-                    /* Force filter none on all calendar elements */
-                    .rdp * {
-                      filter: none !important;
-                    }
-                  `}</style>
                   <DayPicker
                     mode="single"
                     selected={selectedDate || undefined}
-                    onSelect={(date) => {
-                      setSelectedDate(date || null);
-                      setSelectedTime(null);
-                    }}
+                    onSelect={(date) => { setSelectedDate(date || null); setSelectedTime(null); }}
                     disabled={disabledDates}
                     className="bg-white p-4 rounded-lg border border-[#e0e0e0]"
                   />
                 </div>
               </div>
-
-              {/* Time Slots */}
               {selectedDate && (
                 <div className="space-y-4">
                   <h2 className="text-xl font-medium text-[#2c2c2c]">בחר שעה</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {loadingBookings ? (
-                      <div className="col-span-2 text-center py-8 text-[#666666]">
-                        טוען זמנים זמינים...
-                      </div>
+                      <div className="col-span-2 text-center py-8 text-[#666666]">טוען זמנים זמינים...</div>
                     ) : availableSlots.length === 0 ? (
-                      <div className="col-span-2 text-center py-8 text-[#666666]">
-                        אין זמנים זמינים לתאריך זה
-                      </div>
+                      <div className="col-span-2 text-center py-8 text-[#666666]">אין זמנים זמינים לתאריך זה</div>
                     ) : (
-                      availableSlots.map((slot) => {
-                        const isSelected = selectedTime === slot.key;
-                        
-                        return (
-                          <button
-                            key={slot.key}
-                            onClick={() => setSelectedTime(slot.key)}
-                            className={`
-                              border rounded-lg p-4 text-center transition-all duration-200 font-medium
-                              ${isSelected
-                                ? 'border-[#c9a961] border-[3px] bg-[#c9a961] text-white shadow-md'
-                                : 'border-[#e0e0e0] bg-white text-[#2c2c2c] hover:bg-[#f5f5f5] hover:border-[#c9a961] hover:shadow-sm'
-                              }
-                            `}
-                          >
-                            <span className={`text-sm md:text-base transition-colors duration-200 ${
-                              isSelected 
-                                ? 'text-white' 
-                                : 'text-[#2c2c2c]'
-                            }`}>
-                              {slot.start} - {slot.end}
-                            </span>
-                          </button>
-                        );
-                      })
+                      availableSlots.map((slot) => (
+                        <button key={slot.key} onClick={() => setSelectedTime(slot.key)} className={`border rounded-lg p-4 text-center transition-all duration-200 font-medium ${selectedTime === slot.key ? 'border-[#c9a961] border-[3px] bg-[#c9a961] text-white shadow-md' : 'border-[#e0e0e0] bg-white text-[#2c2c2c] hover:bg-[#f5f5f5] hover:border-[#c9a961] hover:shadow-sm'}`}>
+                          <span className={`text-sm md:text-base transition-colors duration-200 ${selectedTime === slot.key ? 'text-white' : 'text-[#2c2c2c]'}`}>{slot.start} - {slot.end}</span>
+                        </button>
+                      ))
                     )}
                   </div>
                 </div>
               )}
-
-              {/* Continue Button */}
               <div className="flex justify-center pt-4">
-                <button
-                  onClick={handleConfirmBooking}
-                  disabled={!selectedDate || !selectedTime}
-                  className={`
-                    px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm
-                    ${selectedDate && selectedTime
-                      ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100'
-                      : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'
-                    }
-                  `}
-                >
-                  המשך
-                </button>
+                <button onClick={handleConfirmBooking} disabled={!selectedDate || !selectedTime} className={`px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm ${selectedDate && selectedTime ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100' : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'}`}>המשך</button>
               </div>
             </div>
           </>
         ) : step === 'contact' ? (
           <>
-            {/* Contact Form Section */}
             <div className="space-y-8">
-              {/* Back Button */}
-              <button
-                onClick={handleBack}
-                className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2"
-              >
+              <button onClick={handleBack} className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2">
                 <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
                 חזרה
               </button>
-
-              {/* Booking Summary */}
-              <div className="border border-[#e0e0e0] rounded-lg bg-white p-6 shadow-sm">
-                <h3 className="text-lg font-medium text-[#2c2c2c] mb-4">סיכום התור</h3>
-                {selectedServiceData && selectedDate && (
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[#666666]">שירות:</span>
-                      <span className="text-[#2c2c2c] font-medium">{selectedServiceData.title}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[#666666]">תאריך:</span>
-                      <span className="text-[#2c2c2c] font-medium">{formatDate(selectedDate)}</span>
-                    </div>
-                    {selectedTime && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-[#666666]">שעה:</span>
-                        <span className="text-[#2c2c2c] font-medium">{getSelectedTimeSlotText()}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Contact Form */}
               <div className="space-y-6">
                 <h2 className="text-xl font-medium text-[#2c2c2c]">פרטי יצירת קשר</h2>
-                
                 <div className="space-y-4">
-                  {/* Name Field */}
                   <div className="space-y-2">
-                    <label htmlFor="name" className="block text-sm font-medium text-[#2c2c2c]">
-                      שם מלא
-                    </label>
-                    <input
-                      id="name"
-                      type="text"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      placeholder="הכנס שם מלא"
-                      className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-                      dir="rtl"
-                    />
+                    <label htmlFor="name" className="block text-sm font-medium text-[#2c2c2c]">שם מלא</label>
+                    <input id="name" type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="הכנס שם מלא" className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200" dir="rtl" />
                   </div>
-
-                  {/* Phone Field */}
                   <div className="space-y-2">
-                    <label htmlFor="phone" className="block text-sm font-medium text-[#2c2c2c]">
-                      מספר טלפון
-                    </label>
-                    <input
-                      id="phone"
-                      type="tel"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                      placeholder="0501234567"
-                      className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200"
-                      dir="ltr"
-                    />
-                    {customerPhone && !isValidPhoneNumber(customerPhone) && (
-                      <p className="text-xs text-red-500">אנא הכנס מספר טלפון תקין</p>
-                    )}
+                    <label htmlFor="phone" className="block text-sm font-medium text-[#2c2c2c]">מספר טלפון</label>
+                    <input id="phone" type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="0501234567" className="w-full border border-[#e0e0e0] rounded-lg px-4 py-3 text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200" dir="ltr" />
                   </div>
                 </div>
-
-                {/* WhatsApp Booking Button */}
                 <div className="flex justify-center pt-4">
-                  <button
-                    onClick={handleWhatsAppBooking}
-                    disabled={!isFormValid || savingBooking}
-                    className={`
-                      px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm
-                      ${isFormValid && !savingBooking
-                        ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100'
-                        : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'
-                      }
-                    `}
-                  >
+                  <button onClick={handleWhatsAppBooking} disabled={!isFormValid || savingBooking} className={`px-12 py-4 rounded-sm font-medium tracking-wide transition-all duration-200 uppercase text-sm ${isFormValid && !savingBooking ? 'bg-[#c9a961] hover:bg-[#b8964f] text-white cursor-pointer shadow-sm hover:shadow-md transform hover:scale-[1.02] opacity-100' : 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed opacity-50'}`}>
                     {savingBooking ? 'שומר תור...' : 'אישור וקביעת תור בוואטסאפ'}
                   </button>
                 </div>
@@ -1660,76 +1298,27 @@ export default function Home() {
           </>
         ) : step === 'verification' ? (
           <>
-            {/* Verification Step */}
             <div className="space-y-8">
-              {/* Back Button */}
-              <button
-                onClick={handleBack}
-                className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2"
-              >
-                <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+              <button onClick={handleBack} className="text-[#666666] hover:text-[#2c2c2c] transition-colors duration-200 flex items-center gap-2">
+                <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                 חזרה
               </button>
-
-              {/* Verification Form */}
               <div className="flex items-center justify-center min-h-[50vh]">
                 <div className="bg-white rounded-2xl shadow-xl p-8 md:p-12 max-w-md w-full">
                   <div className="space-y-6 text-center">
-                    {/* Verification Icon */}
                     <div className="flex justify-center">
-                      <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center">
-                        <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      </div>
+                      <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center text-white text-3xl">🔑</div>
                     </div>
-
-                    {/* Verification Message */}
                     <div className="space-y-3">
                       <h2 className="text-2xl md:text-3xl font-bold text-[#2c2c2c]">הזן את קוד האימות</h2>
-                      <p className="text-base text-[#666666]">
-                        קוד האימות נשלח אליך. אנא הכנס את הקוד לאימות התור.
-                      </p>
+                      <p className="text-base text-[#666666]">קוד האימות נשלח אליך. אנא הכנס את הקוד לאימות התור.</p>
                     </div>
-
-                    {/* Verification Code Input */}
                     <div className="space-y-4">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={4}
-                        value={verificationCode}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '');
-                          setVerificationCode(value);
-                          setVerificationError('');
-                        }}
-                        placeholder="0000"
-                        className="w-full border-2 border-[#e0e0e0] rounded-lg px-6 py-4 text-center text-2xl font-bold text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200 tracking-widest"
-                        dir="ltr"
-                        autoFocus
-                      />
-                      {verificationError && (
-                        <p className="text-sm text-red-600">{verificationError}</p>
-                      )}
+                      <input type="text" maxLength={4} value={verificationCode} onChange={(e) => { setVerificationCode(e.target.value.replace(/\D/g, '')); setVerificationError(''); }} placeholder="0000" className="w-full border-2 border-[#e0e0e0] rounded-lg px-6 py-4 text-center text-2xl font-bold text-[#2c2c2c] bg-white focus:outline-none focus:border-[#c9a961] focus:ring-2 focus:ring-[#c9a961] focus:ring-opacity-20 transition-all duration-200 tracking-widest" dir="ltr" autoFocus />
+                      {verificationError && <p className="text-sm text-red-600">{verificationError}</p>}
                     </div>
-
-                    {/* Verify Button */}
                     <div className="pt-4">
-                      <button
-                        onClick={handleVerification}
-                        disabled={verifying || verificationCode.length !== 4}
-                        className={`
-                          w-full px-10 py-4 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-base
-                          ${verifying || verificationCode.length !== 4
-                            ? 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed'
-                            : 'bg-[#c9a961] hover:bg-[#b8964f] text-white'
-                          }
-                        `}
-                      >
+                      <button onClick={handleVerification} disabled={verifying || verificationCode.length !== 4} className={`w-full px-10 py-4 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-base ${verifying || verificationCode.length !== 4 ? 'bg-[#e8e8e8] text-[#b0b0b0] cursor-not-allowed' : 'bg-[#c9a961] hover:bg-[#b8964f] text-white'}`}>
                         {verifying ? 'מאמת...' : 'אמת תור'}
                       </button>
                     </div>
@@ -1740,43 +1329,18 @@ export default function Home() {
           </>
         ) : step === 'success' ? (
           <>
-            {/* Success Step */}
             <div className="flex items-center justify-center min-h-[50vh]">
               <div className="bg-gradient-to-br from-pink-50 to-rose-50 border-2 border-pink-200 rounded-2xl shadow-xl p-8 md:p-12 max-w-lg w-full text-center">
                 <div className="space-y-6">
-                  {/* Success Icon */}
                   <div className="flex justify-center">
-                    <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center">
-                      <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
+                    <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center text-white text-3xl shadow-lg">✓</div>
                   </div>
-                  
-                  {/* Success Message */}
                   <div className="space-y-3">
                     <h2 className="text-3xl md:text-4xl font-bold text-[#2c2c2c]">התור נקבע בהצלחה!</h2>
-                    <p className="text-base md:text-lg text-[#666666] leading-relaxed px-2">
-                      התור נקבע בהצלחה! ניתן לצפות בתור ולבטלו בכל עת דרך כפתור "התורים שלי" שבראש הדף.
-                    </p>
+                    <p className="text-base md:text-lg text-[#666666] leading-relaxed px-2">התור נקבע בהצלחה! ניתן לצפות בתור ולבטלו בכל עת דרך כפתור "התורים שלי" שבראש הדף.</p>
                   </div>
-                  
-                  {/* Continue Button */}
                   <div className="pt-4">
-                    <button
-                      onClick={() => {
-                        setStep('services');
-                        setSelectedService(null);
-                        setSelectedDate(null);
-                        setSelectedTime(null);
-                        setCustomerName('');
-                        setCustomerPhone('');
-                        setCancellationLink(null);
-                      }}
-                      className="px-10 py-4 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-base"
-                    >
-                      קבע תור נוסף
-                    </button>
+                    <button onClick={() => { setStep('services'); setSelectedService(null); setSelectedDate(null); setSelectedTime(null); setCustomerName(''); setCustomerPhone(''); }} className="px-10 py-4 bg-[#c9a961] hover:bg-[#b8964f] text-white rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-base">קבע תור נוסף</button>
                   </div>
                 </div>
               </div>
