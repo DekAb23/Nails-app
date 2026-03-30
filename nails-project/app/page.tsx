@@ -122,7 +122,7 @@ export default function Home() {
     const formatTime = (minutes: number) => { const h = Math.floor(minutes / 60); const m = minutes % 60; return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`; };
     const dayOfWeek = selectedDate.getDay();
     let workingStartMinutes = 9 * 60;
-    let workingEndMinutes = dayOfWeek === 5 ? 12 * 60 : 18 * 60;
+    let workingEndMinutes = dayOfWeek === 5 ? 12 * 60 : 16 * 60;
     if (dailySchedule) { workingStartMinutes = timeToMinutes(dailySchedule.start_time); workingEndMinutes = timeToMinutes(dailySchedule.end_time); }
     const dateBlockedSlots = blockedTimeSlots.map(bt => ({ start: timeToMinutes(bt.start_time), end: timeToMinutes(bt.end_time) }));
     const duration = selectedServiceData.durationMinutes;

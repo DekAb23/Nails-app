@@ -91,7 +91,7 @@ export default function AdminPage() {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
-  const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('18:00');
+  const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('16:00');
 
   const todayStr = useMemo(() => {
     const d = new Date();
