@@ -380,11 +380,12 @@ export default function AdminPage() {
                         }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-green-500 transition-colors"><MessageCircle size={18}/></button>
                         <button onClick={async () => {
                           if (confirm('לבטל תור?')) {
+                            // שינוי לוגי: הוספת await ועדכון אופטימי
                             const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
                             if (!error) {
                                 setBookings(prev => prev.filter(b => b.id !== booking.id));
                                 await logActivity('cancel', `בוטל: ${booking.customer_name}`);
-                                fetchData();
+                                await fetchData(); // await כאן חשוב מאוד
                             }
                           }
                         }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
