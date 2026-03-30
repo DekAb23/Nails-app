@@ -737,49 +737,27 @@ export default function Home() {
       const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
       
       // Create a temporary unverified booking entry for verification purposes
-      // This allows us to use the unified verification system
       try {
-        // First, check if there's already an unverified booking we can use
-        const { data: existingBookings } = await supabase
+        // Use a hidden/special service title for verification rows to prevent display issues
+        await supabase
           .from('bookings')
-          .select('id, verification_code')
-          .eq('customer_phone', phoneDigits)
-          .eq('is_verified', false)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        
-        if (existingBookings && existingBookings.length > 0) {
-          // Update existing booking with new verification code
-          await supabase
-            .from('bookings')
-            .update({ verification_code: verificationCode })
-            .eq('id', existingBookings[0].id);
-        } else {
-          // Create a temporary booking entry for verification
-          const tempDate = new Date();
-          tempDate.setDate(tempDate.getDate() + 1); // Tomorrow
-          const tempDateStr = format(tempDate, 'yyyy-MM-dd');
-          
-          await supabase
-            .from('bookings')
-            .insert([{
-              service_id: 'temp',
-              service_title: 'אימות זמני',
-              service_duration: 0,
-              date: tempDateStr,
-              start_time: '00:00',
-              end_time: '00:00',
-              customer_name: 'אימות',
-              customer_phone: phoneDigits,
-              verification_code: verificationCode,
-              is_verified: false,
-              status: 'pending',
-              cancellation_token: uuidv4(),
-            }]);
-        }
+          .insert([{
+            service_id: 'verification_only',
+            service_title: 'אימות מערכת',
+            service_duration: 0,
+            date: '1970-01-01', // Date in the past
+            start_time: '00:00',
+            end_time: '00:00',
+            customer_name: 'אימות',
+            customer_phone: phoneDigits,
+            verification_code: verificationCode,
+            is_verified: false,
+            status: 'pending',
+            cancellation_token: uuidv4(),
+          }]);
         
         // Send SMS
-        const smsResponse = await fetch('/api/sms', {
+        await fetch('/api/sms', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -791,20 +769,14 @@ export default function Home() {
           }),
         });
         
-        if (!smsResponse.ok) {
-          console.error('Failed to send SMS:', await smsResponse.text());
-          alert('אירעה שגיאה בשליחת קוד האימות. נא לנסות שוב.');
-          return;
-        }
-        
-        setAppointmentsVerificationCode(verificationCode);
+        // החלק שמתוקן: לא שומרים את הקוד ב-state כדי שלא יופיע על המסך
+        // setAppointmentsVerificationCode(verificationCode); 
       } catch (error) {
         console.error('Error setting up verification:', error);
         alert('אירעה שגיאה בהגדרת האימות.');
-        return;
       }
       
-      return; // Don't fetch appointments yet, wait for verification
+      return; 
     }
     
     // User is verified - fetch appointments
@@ -814,6 +786,7 @@ export default function Home() {
         .from('bookings')
         .select('*')
         .eq('customer_phone', phoneDigits)
+        .neq('service_id', 'verification_only') // החלק שמתוקן: מסנן את שורות האימות
         .in('status', ['pending', 'confirmed'])
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
@@ -869,7 +842,7 @@ export default function Home() {
 
       if (!verifyResponse.ok || !verifyResult.verified) {
         setAppointmentsVerificationError('קוד אימות שגוי. נא לנסות שוב.');
-        setAppointmentsVerifying(false);
+        setVerifying(false);
         return;
       }
 
@@ -1492,7 +1465,7 @@ export default function Home() {
                     }
                     .rdp-day_selected,
                     .rdp-day_selected .rdp-button {
-                      background-color: #c9a961 !important; /* Adar's Gold */
+                      background-color: #c9a961 !important;
                       color: #ffffff !important;
                       filter: none !important;
                     }
@@ -1740,7 +1713,7 @@ export default function Home() {
                         autoFocus
                       />
                       {verificationError && (
-                        <p className="text-sm text-red-500">{verificationError}</p>
+                        <p className="text-sm text-red-600">{verificationError}</p>
                       )}
                     </div>
 
