@@ -26,7 +26,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
   );
 }
 
-// --- LoginForm Component (The Missing Piece) ---
+// --- LoginForm Component ---
 function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -136,7 +136,6 @@ export default function AdminPage() {
     setActivities(al || []);
   };
 
-  // --- Fixed Auth Sync ---
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -156,21 +155,40 @@ export default function AdminPage() {
 
   const handleDeleteSchedule = async (id: string, dateStr: string) => {
     if (!confirm('לבטל את שעות העבודה המיוחדות ליום זה?')) return;
-    await supabase.from('daily_schedules').delete().eq('id', id);
-    await logActivity('blocked', `הסרת שעות מיוחדות: ${formatHeDate(dateStr)}`);
-    fetchData();
+    
+    // מחיקה לפי תאריך היא הבטוחה ביותר
+    const { error } = await supabase.from('daily_schedules').delete().eq('date', dateStr);
+    if (!error) {
+      setDailySchedules(prev => prev.filter(ds => ds.date !== dateStr));
+      await logActivity('blocked', `הסרת שעות מיוחדות: ${formatHeDate(dateStr)}`);
+      fetchData();
+    } else {
+      console.error('Delete error:', error.message);
+    }
   };
 
   const handleDeleteBlockedDate = async (id: string, dateStr: string) => {
     if (!confirm('לפתוח את היום החסום?')) return;
-    await supabase.from('blocked_dates').delete().eq('id', id);
-    await logActivity('blocked', `פתיחת יום חסום: ${formatHeDate(dateStr)}`);
-    fetchData();
+    
+    // שינוי קריטי: מחיקה לפי תאריך בלבד לעקיפת בעיות ID והרשאות
+    const { error } = await supabase
+      .from('blocked_dates')
+      .delete()
+      .eq('date', dateStr);
+
+    if (!error) {
+      setBlockedDates(prev => prev.filter(bd => bd.date !== dateStr));
+      await logActivity('blocked', `פתיחת יום חסום: ${formatHeDate(dateStr)}`);
+      fetchData();
+    } else {
+      console.error('Database Error details:', error);
+      alert(`שגיאת שרת: ${error.message}`);
+    }
   };
 
   const bookingDateObjects = useMemo(() => bookings.map(b => {
-      const [y, m, d] = b.date.split('-').map(Number);
-      return new Date(y, m - 1, d);
+    const [y, m, d] = b.date.split('-').map(Number);
+    return new Date(y, m - 1, d);
   }), [bookings]);
 
   const blockedDateObjects = useMemo(() => 
@@ -197,7 +215,6 @@ export default function AdminPage() {
     return bookings.filter(b => b.date === dateStr).sort((a,b) => a.start_time.localeCompare(b.start_time));
   }, [bookings, selectedDate]);
 
-  // --- Auth Screen Render ---
   if (checkingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F2F2F7]">
@@ -264,11 +281,13 @@ export default function AdminPage() {
                   const dStr = toLocalDateString(selectedDate);
                   const existing = blockedDates.find(d => d.date === dStr);
                   if (existing) {
-                    await supabase.from('blocked_dates').delete().eq('date', dStr);
-                    await logActivity('blocked', `חסימה הוסרה: ${formatHeDate(dStr)}`);
+                    await handleDeleteBlockedDate(existing.id, dStr);
                   } else {
-                    await supabase.from('blocked_dates').insert([{ date: dStr }]);
-                    await logActivity('block', `נחסם יום מלא: ${formatHeDate(dStr)}`);
+                    const { data, error } = await supabase.from('blocked_dates').insert([{ date: dStr }]).select().single();
+                    if (data) {
+                        setBlockedDates(prev => [...prev, data]);
+                        await logActivity('block', `נחסם יום מלא: ${formatHeDate(dStr)}`);
+                    }
                   }
                   fetchData();
                 }}
@@ -306,8 +325,8 @@ export default function AdminPage() {
                   <p className="text-slate-400 text-sm italic text-center py-4">אין חסימות עתידיות</p>
                 ) : (
                   <>
-                    {futureBlocked.map(bd => (
-                      <div key={bd.id} className="flex items-center justify-between p-3 bg-red-50 rounded-2xl border border-red-100 group">
+                    {futureBlocked.map((bd, index) => (
+                      <div key={bd.id || `blocked-${index}`} className="flex items-center justify-between p-3 bg-red-50 rounded-2xl border border-red-100 group">
                         <div className="flex flex-col">
                             <span className="text-sm font-bold text-red-700">{formatHeDate(bd.date)}</span>
                             <span className="text-[10px] font-black uppercase text-red-400">יום חסום מלא</span>
@@ -363,9 +382,12 @@ export default function AdminPage() {
                         }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-green-500 transition-colors"><MessageCircle size={18}/></button>
                         <button onClick={async () => {
                           if (confirm('לבטל תור?')) {
-                            await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
-                            await logActivity('cancel', `בוטל: ${booking.customer_name}`);
-                            fetchData();
+                            const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id);
+                            if (!error) {
+                                setBookings(prev => prev.filter(b => b.id !== booking.id));
+                                await logActivity('cancel', `בוטל: ${booking.customer_name}`);
+                                fetchData();
+                            }
                           }
                         }} className="p-2.5 bg-white text-slate-400 rounded-xl shadow-sm hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
                       </div>
