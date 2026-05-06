@@ -105,9 +105,19 @@ export default function Home() {
 
   const sendConfirmationNotifications = async (booking: any) => {
     const formattedDate = format(parseDateString(booking.date), 'dd/MM');
-    const customerMessage = `שלום ${booking.customer_name}, \nנקבע לך תור אצל Adar Cosmetics\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${booking.start_time}\nבכתובת מור 5 א', קומה 6 דירה 25.`;
+    const formattedTime = booking.start_time.slice(0, 5);
+    
+    // הודעה ללקוחה
+    const customerMessage = `שלום ${booking.customer_name}.,\nנקבע לך תור אצל Adar Cosmetics\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nקישור לאינסטגרם:\nhttps://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
+    
+    // הודעה לאדר (המנהלת)
+    const managerMessage = `אדר, נקבע תור חדש!\nלקוחה: ${booking.customer_name}\nטיפול: ${booking.service_title}\nזמן: ${formattedDate} בשעה ${formattedTime}\nטלפון: ${booking.customer_phone}`;
+
     try {
+      // שליחה ללקוחה
       await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: booking.customer_phone, message: customerMessage, isDirectMessage: true })});
+      // שליחה לאדר
+      await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '0508917748', message: managerMessage, isDirectMessage: true })});
     } catch (error) { console.error('Notification error:', error); }
   };
 
@@ -258,8 +268,22 @@ export default function Home() {
 
   const handleCancelAppointment = async (id: string) => {
     if (!confirm('לבטל את התור?')) return;
-    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
-    setMyAppointments(prev => prev.filter(a => a.id !== id));
+    
+    // שמירת פרטי התור לפני העדכון כדי לשלוח הודעה למנהלת
+    const appToCancel = myAppointments.find(a => a.id === id);
+    
+    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
+    
+    if (!error && appToCancel) {
+      const formattedDate = formatDateString(appToCancel.date);
+      const managerCancelMessage = `אדר, לקוחה ביטלה תור:\nשם: ${appToCancel.customer_name}\nזמן: ${formattedDate} בשעה ${appToCancel.start_time}\nטיפול: ${appToCancel.service_title}`;
+      
+      try {
+        await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '0508917748', message: managerCancelMessage, isDirectMessage: true })});
+      } catch (err) { console.error('Manager cancellation notify error:', err); }
+      
+      setMyAppointments(prev => prev.filter(a => a.id !== id));
+    }
   };
 
   const formatDateString = (dateStr: string): string => { 
