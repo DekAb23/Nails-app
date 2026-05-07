@@ -21,11 +21,15 @@ const playfairDisplay = Playfair_Display({
 
 // --- Metadata מותאם אישית לאדר אברג'ל מנצור ---
 export const metadata: Metadata = {
+  // הכותרת שתופיע בלשונית
   title: "Adar Cosmetics | בוטיק יופי וטיפוח",
+  // תיאור שתוקן לבקשתך
   description: "קביעת תורים אונליין לאדר אברג'ל מנצור",
   other: {
     "color-scheme": "light only",
   },
+  
+  // הגדרות Open Graph - איך זה נראה בוואטסאפ
   openGraph: {
     title: "Adar Cosmetics",
     description: "קביעת תורים אונליין לאדר אברג'ל מנצור",
@@ -33,16 +37,20 @@ export const metadata: Metadata = {
     siteName: "Adar Cosmetics",
     locale: "he_IL",
     type: "website",
-    // הוספת הנתיב המפורש לתמונה
+    
+    // הגדרת התמונה המפורשת - ה"קסם" שפותר את הבעיה
+    // הנתיב /opengraph-image.png מפנה לקובץ בתוך תיקיית app
     images: [
       {
-        url: 'https://nails-app-omega.vercel.app/opengraph-image.png', 
-        width: 1200,
-        height: 630,
+        url: '/opengraph-image.png', 
+        width: 1200, // גודל מומלץ (Next.js מזהה לבד אבל כדאי להגדיר)
+        height: 630, // גודל מומלץ
         alt: 'Adar Cosmetics',
       },
     ],
   },
+  
+  // הגדרת Favicon (האייקון הקטן בלשונית - נטפל בו אחר כך)
   icons: {
     icon: "/favicon.ico",
   },
