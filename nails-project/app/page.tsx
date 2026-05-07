@@ -240,7 +240,18 @@ export default function Home() {
       if (existing && existing.length > 0) {
         await supabase.from('bookings').update({ verification_code: code }).eq('id', existing[0].id);
       } else {
-        await supabase.from('bookings').insert([{ customer_phone: phoneDigits, verification_code: code, service_id: 'verification', service_title: 'אימות', customer_name: 'לקוחה', date: format(new Date(), 'yyyy-MM-dd'), start_time: '00:00', end_time: '00:00', status: 'unverified' }]);
+        // תיקון: לקוחה חדשה נרשמת כ-confirmed כדי שה-API של האימות ימצא אותה
+        await supabase.from('bookings').insert([{ 
+          customer_phone: phoneDigits, 
+          verification_code: code, 
+          service_id: 'verification', 
+          service_title: 'אימות מערכת', 
+          customer_name: 'לקוחה חדשה', 
+          date: format(new Date(), 'yyyy-MM-dd'), 
+          start_time: '00:00', 
+          end_time: '00:00', 
+          status: 'confirmed' 
+        }]);
       }
       await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneDigits, code, customerName: 'לקוחה' })});
       setAppointmentsNeedsVerification(true);
