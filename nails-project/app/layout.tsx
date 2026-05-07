@@ -33,6 +33,15 @@ export const metadata: Metadata = {
     siteName: "Adar Cosmetics",
     locale: "he_IL",
     type: "website",
+    // הוספת הנתיב המפורש לתמונה
+    images: [
+      {
+        url: 'https://nails-app-omega.vercel.app/opengraph-image.png', 
+        width: 1200,
+        height: 630,
+        alt: 'Adar Cosmetics',
+      },
+    ],
   },
   icons: {
     icon: "/favicon.ico",
