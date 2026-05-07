@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     // הנתיב /opengraph-image.png מפנה לקובץ בתוך תיקיית app
     images: [
       {
-        url: '/opengraph-image.png', 
+        url: '/opengraph-image.jpg', 
         width: 1200, // גודל מומלץ (Next.js מזהה לבד אבל כדאי להגדיר)
         height: 630, // גודל מומלץ
         alt: 'Adar Cosmetics',
