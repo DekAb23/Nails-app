@@ -6,7 +6,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { 
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone, 
-  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search
 } from 'lucide-react';
 import { supabase, Booking, BlockedDate, DailySchedule, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -17,6 +17,15 @@ type BlockedTimeSlot = {
   date: string;
   start_time: string;
   end_time: string;
+};
+
+type CustomerStats = {
+  phone: string;
+  name: string;
+  totalBookings: number;
+  firstVisit: string;
+  lastVisit: string;
+  favoriteService: string;
 };
 
 // --- פונקציות עזר ---
@@ -78,8 +87,10 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [activeTab, setActiveTab] = useState<'daily' | 'calendar' | 'activity'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'calendar' | 'customers' | 'activity'>('daily');
   const [isQuickCalendarOpen, setIsQuickCalendarOpen] = useState(false);
+  const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>('');
   
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
@@ -115,6 +126,64 @@ export default function AdminPage() {
     const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20);
     setBookings(b || []); setBlockedDates(bd || []); setDailySchedules(ds || []); setBlockedTimeSlots(bts || []); setActivities(al || []);
   };
+
+  // מנוע חישוב וסינון לקוחות קבועות
+  const loyalCustomers = useMemo(() => {
+    const adminPhone = '0508917748';
+    const customerMap: Record<string, { name: string; dates: string[]; services: Record<string, number> }> = {};
+
+    bookings.forEach(b => {
+      if (b.customer_phone === adminPhone) return;
+
+      if (!customerMap[b.customer_phone]) {
+        customerMap[b.customer_phone] = {
+          name: b.customer_name,
+          dates: [],
+          services: {}
+        };
+      }
+      
+      customerMap[b.customer_phone].dates.push(b.date);
+      customerMap[b.customer_phone].services[b.service_title] = (customerMap[b.customer_phone].services[b.service_title] || 0) + 1;
+    });
+
+    return Object.entries(customerMap)
+      .map(([phone, data]) => {
+        const sortedDates = [...data.dates].sort((a, b) => a.localeCompare(b));
+        
+        // מציאת השירות המבוקש ביותר
+        let favoriteService = 'לא מוגדר';
+        let maxCount = 0;
+        Object.entries(data.services).forEach(([service, count]) => {
+          if (count > maxCount) {
+            maxCount = count;
+            favoriteService = service;
+          }
+        });
+
+        return {
+          phone,
+          name: data.name,
+          totalBookings: data.dates.length,
+          firstVisit: sortedDates[0],
+          lastVisit: sortedDates[sortedDates.length - 1],
+          favoriteService
+        };
+      })
+      .filter(c => c.totalBookings > 1) // מציג רק לקוחות קבועות (יותר מתור 1)
+      .sort((a, b) => b.totalBookings - a.totalBookings); // מיון לפי כמות תורים (הכי קבועות למעלה)
+  }, [bookings]);
+
+  // לוגיקת סינון לקוחות בזמן אמת לפי תיבת החיפוש
+  const filteredCustomers = useMemo(() => {
+    if (!searchTerm.trim()) return loyalCustomers;
+    
+    const cleanSearch = searchTerm.toLowerCase().trim();
+    return loyalCustomers.filter(c => 
+      c.name.toLowerCase().includes(cleanSearch) || 
+      c.phone.includes(cleanSearch)
+    );
+  }, [loyalCustomers, searchTerm]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -163,7 +232,7 @@ export default function AdminPage() {
     return slots;
   }, []);
 
-  const dailyBookings = useMemo(() => bookings.filter(b => b.date === toLocalDateString(selectedDate)).sort((a,b) => a.start_time.localeCompare(b.start_time)), [bookings, selectedDate]);
+  const dailyBookings = useMemo(() => bookings.filter(b => b.date === toLocalDateString(selectedDate) && b.customer_phone !== '0508917748').sort((a,b) => a.start_time.localeCompare(b.start_time)), [bookings, selectedDate]);
   const currentDaySchedule = useMemo(() => dailySchedules.find(ds => ds.date === toLocalDateString(selectedDate)), [dailySchedules, selectedDate]);
   const currentDayBreaks = useMemo(() => blockedTimeSlots.filter(bts => bts.date === toLocalDateString(selectedDate)), [blockedTimeSlots, selectedDate]);
   const isFullBlocked = useMemo(() => blockedDates.some(bd => bd.date === toLocalDateString(selectedDate)), [blockedDates, selectedDate]);
@@ -201,8 +270,8 @@ export default function AdminPage() {
         </div>
         
         <div className="max-w-2xl mx-auto grid grid-cols-3 gap-3">
-          <StatCard title="היום" value={bookings.filter(b => b.date === todayStr).length} icon={Clock} color="blue" />
-          <StatCard title="פעילים" value={bookings.filter(b => b.date >= todayStr).length} icon={Users} color="gold" />
+          <StatCard title="היום" value={bookings.filter(b => b.date === todayStr && b.customer_phone !== '0508917748').length} icon={Clock} color="blue" />
+          <StatCard title="קבועות" value={loyalCustomers.length} icon={Users} color="gold" />
           <StatCard title="חסימות" value={blockedDates.filter(bd => bd.date >= todayStr).length} icon={XCircle} color="red" />
         </div>
       </div>
@@ -213,12 +282,35 @@ export default function AdminPage() {
           <div className="space-y-5 animate-in fade-in duration-500">
             <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl p-4 rounded-3xl border border-white/40 shadow-sm">
               <button onClick={() => changeDay(-1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronRight size={20}/></button>
-              <div className="text-center cursor-pointer px-6" onClick={() => setIsQuickCalendarOpen(true)}>
+              <div className="text-center cursor-pointer px-6 flex-1" onClick={() => setIsQuickCalendarOpen(true)}>
                 <p className="text-[10px] font-black text-[#c9a961] uppercase tracking-[0.2em] mb-1">בחרי תאריך</p>
-                <h2 className="text-base font-serif italic text-slate-900">{formatHeDate(toLocalDateString(selectedDate))}</h2>
+                <h2 className="text-base font-serif italic text-slate-900 flex items-center justify-center gap-1">
+                  {formatHeDate(toLocalDateString(selectedDate))}
+                </h2>
               </div>
               <button onClick={() => changeDay(1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronLeft size={20}/></button>
             </div>
+
+            {/* מודאל צף לבחירת תאריך מהירה (זהה ללוח השנה הראשי עם כל הצבעים) */}
+            {isQuickCalendarOpen && (
+              <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsQuickCalendarOpen(false)}>
+                <div className="bg-white/95 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white/60 shadow-2xl text-center max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">ניווט מהיר ביומן</span>
+                    <button onClick={() => setIsQuickCalendarOpen(false)} className="bg-slate-100 p-1.5 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <DayPicker 
+                    mode="single" 
+                    selected={selectedDate} 
+                    onSelect={(d) => { if (d) { setSelectedDate(d); setIsQuickCalendarOpen(false); } }} 
+                    modifiers={{ hasBooking: bookingDateObjects, blocked: blockedDateObjects, partial: partialDateObjects, past: pastDates }} 
+                    modifiersClassNames={{ hasBooking: 'rdp-day_hasBooking', blocked: 'rdp-day_blocked', partial: 'rdp-day_partial', past: 'rdp-day_past' }} 
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="bg-white/60 backdrop-blur-2xl rounded-[2.5rem] p-5 border border-white/40 shadow-sm min-h-[500px]">
               <div className="space-y-3.5">
@@ -343,6 +435,136 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* לשונית לקוחות עם חיפוש מובנה והיסטוריית טיפולים */}
+        {activeTab === 'customers' && (
+          <div className="space-y-5 animate-in fade-in duration-500">
+            <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
+              <div className="flex items-center gap-2.5 mb-2 border-b border-slate-100 pb-4">
+                <Users size={18} className="text-[#c9a961]" />
+                <h2 className="text-xs font-black uppercase tracking-widest text-slate-900">מועדון לקוחות קבועות</h2>
+              </div>
+              <p className="text-[10px] text-slate-400 mb-4">רשימת הלקוחות הנאמנות שביצעו יותר מתור אחד במערכת (לא כולל המנהלת).</p>
+              
+              {/* תיבת חיפוש מהיר */}
+              <div className="relative mb-5">
+                <input 
+                  type="text" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="חיפוש לקוחה לפי שם או טלפון..." 
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl pl-4 pr-11 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
+                />
+                <Search size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {filteredCustomers.length === 0 ? (
+                  <p className="text-xs text-slate-300 text-center py-12">
+                    {searchTerm ? 'לא נמצאו לקוחות המתאימות לחיפוש.' : 'אין מספיק נתונים על לקוחות קבועות כרגע.'}
+                  </p>
+                ) : (
+                  filteredCustomers.map(customer => {
+                    const isExpanded = expandedCustomer === customer.phone;
+                    
+                    // פילטר ומיון היסטוריית תורים של הלקוחה מהחדש לישן
+                    const customerHistory = bookings
+                      .filter(b => b.customer_phone === customer.phone)
+                      .sort((a, b) => b.date.localeCompare(a.date) || b.start_time.localeCompare(a.start_time));
+
+                    return (
+                      <div key={customer.phone} className="bg-white border border-slate-100/80 rounded-2xl overflow-hidden transition-all shadow-sm">
+                        {/* כותרת כרטיס הלקוחה */}
+                        <div 
+                          onClick={() => setExpandedCustomer(isExpanded ? null : customer.phone)}
+                          className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-[#c9a961]/10 text-[#b8964f] rounded-xl flex items-center justify-center font-bold text-xs tabular-nums">
+                              {customer.totalBookings}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-slate-900 text-sm leading-none flex items-center gap-1.5">
+                                {customer.name}
+                                <Star size={12} className="text-[#c9a961] fill-[#c9a961]" />
+                              </h4>
+                              <p className="text-[10px] text-slate-400 font-medium tracking-tight mt-1 tabular-nums">{customer.phone}</p>
+                            </div>
+                          </div>
+                          <div className="text-slate-400 transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                            <ChevronLeft size={16} />
+                          </div>
+                        </div>
+
+                        {/* מידע מורחב שנפתח בלחיצה */}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 pt-1 bg-slate-50/40 border-t border-slate-50 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                            
+                            {/* כרטיסיות נתונים סטטיסטיים */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
+                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
+                                <span className="text-[10px] font-bold text-slate-400">ביקור ראשון:</span>
+                                <span className="text-xs font-semibold text-slate-700 tabular-nums">{formatHeDate(customer.firstVisit)}</span>
+                              </div>
+                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
+                                <span className="text-[10px] font-bold text-slate-400">ביקור אחרון:</span>
+                                <span className="text-xs font-semibold text-slate-700 tabular-nums">{formatHeDate(customer.lastVisit)}</span>
+                              </div>
+                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
+                                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1"><Heart size={10} className="text-red-400 fill-red-400"/> מועדף:</span>
+                                <span className="text-[11px] font-black text-[#b8964f] truncate max-w-[120px]">{customer.favoriteService}</span>
+                              </div>
+                            </div>
+
+                            {/* אזור היסטוריית טיפולים */}
+                            <div className="bg-white rounded-xl border border-slate-100 p-3.5">
+                              <div className="flex items-center gap-1.5 mb-3 border-b border-slate-50 pb-2">
+                                <History size={13} className="text-slate-400" />
+                                <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-500">תקציר תורים קודמים ({customerHistory.length})</h5>
+                              </div>
+                              
+                              <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                {customerHistory.map((historyItem) => (
+                                  <div key={historyItem.id} className="flex justify-between items-center bg-[#FDFBF6]/60 p-2 rounded-lg border border-slate-100/50 text-right">
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-800">{historyItem.service_title}</p>
+                                      <p className="text-[9px] text-slate-400 font-medium tracking-tight mt-0.5 tabular-nums">
+                                        {formatHeDate(historyItem.date)} • בשעה {historyItem.start_time.slice(0, 5)}
+                                      </p>
+                                    </div>
+                                    <span className="text-[9px] font-bold bg-green-50 text-green-600 px-2 py-0.5 rounded-md border border-green-100/30">
+                                      {historyItem.date >= todayStr ? 'עתידי' : 'בוצע'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* כפתורי פעולה מהירים */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <a href={`tel:${customer.phone}`} className="py-3 bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all">
+                                <Phone size={12}/> חיוג מהיר
+                              </a>
+                              <button onClick={() => window.open(`https://wa.me/972${customer.phone.replace(/^0/, '')}`)} className="py-3 bg-green-50 text-green-700 border border-green-100 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all">
+                                <MessageCircle size={12}/> וואטסאפ מהיר
+                              </button>
+                            </div>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'activity' && (
           <div className="bg-white/80 backdrop-blur-xl p-7 rounded-[2.5rem] border border-white/40 shadow-sm animate-in fade-in duration-500">
             <div className="flex items-center gap-3 mb-7 border-b border-slate-100 pb-5 text-right"><History size={18} className="text-[#c9a961]" /><h2 className="text-xs font-black uppercase tracking-widest text-right">פעילות אחרונה</h2></div>
@@ -361,16 +583,20 @@ export default function AdminPage() {
         )}
       </main>
 
-      <div className="lg:hidden fixed bottom-5 left-6 right-6 z-[120] max-w-xs mx-auto">
+      {/* בר ניווט תחתון עם 4 לשוניות */}
+      <div className="fixed bottom-5 left-6 right-6 z-[120] max-w-sm mx-auto">
         <div className="bg-slate-900/95 backdrop-blur-2xl rounded-[2rem] p-1.5 flex justify-between items-center shadow-2xl border border-white/10">
-          <button onClick={() => setActiveTab('daily')} className={`flex-1 flex flex-col items-center py-3 rounded-2xl transition-all ${activeTab === 'daily' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-500'}`}>
-            <Clock size={16}/><span className="text-[8px] font-black uppercase mt-1.5">לו"ז</span>
+          <button onClick={() => setActiveTab('daily')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'daily' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-500'}`}>
+            <Clock size={15}/><span className="text-[8px] font-black uppercase mt-1">לו"ז</span>
           </button>
-          <button onClick={() => setActiveTab('calendar')} className={`flex-1 flex flex-col items-center py-3 rounded-2xl transition-all ${activeTab === 'calendar' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <CalendarIcon size={16}/><span className="text-[8px] font-black uppercase mt-1.5">ניהול</span>
+          <button onClick={() => setActiveTab('calendar')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'calendar' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
+            <CalendarIcon size={15}/><span className="text-[8px] font-black uppercase mt-1">ניהול</span>
           </button>
-          <button onClick={() => setActiveTab('activity')} className={`flex-1 flex flex-col items-center py-3 rounded-2xl transition-all ${activeTab === 'activity' ? 'bg-blue-500 text-white shadow-xl' : 'text-slate-500'}`}>
-            <History size={16}/><span className="text-[8px] font-black uppercase mt-1.5">פעילות</span>
+          <button onClick={() => setActiveTab('customers')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'customers' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
+            <Users size={15}/><span className="text-[8px] font-black uppercase mt-1">לקוחות</span>
+          </button>
+          <button onClick={() => setActiveTab('activity')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'activity' ? 'bg-blue-500 text-white shadow-xl' : 'text-slate-500'}`}>
+            <History size={15}/><span className="text-[8px] font-black uppercase mt-1">פעילות</span>
           </button>
         </div>
       </div>

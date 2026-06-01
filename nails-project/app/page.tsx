@@ -83,7 +83,7 @@ export default function Home() {
   const [appointmentsVerificationError, setAppointmentsVerificationError] = useState<string>('');
   const [appointmentsNeedsVerification, setAppointmentsNeedsVerification] = useState(false);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
-  const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); // חדש: לשמירת ה-ID לאימות בתורים שלי
+  const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); 
   
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
@@ -103,6 +103,13 @@ export default function Home() {
     return digits.length >= 9 && digits.length <= 10 && /^05/.test(digits); 
   };
   const isFormValid = customerName.trim().length > 0 && isValidPhoneNumber(customerPhone);
+
+  // פונקציית עזר לבדיקה האם התור עבר/התחיל (תאריך + שעה)
+  const isBookingPast = (bookingDate: string, startTime: string) => {
+    const now = new Date();
+    const bookingDateTime = new Date(`${bookingDate}T${startTime}`);
+    return now >= bookingDateTime;
+  };
 
   const sendConfirmationNotifications = async (booking: any) => {
     const formattedDate = format(parseDateString(booking.date), 'dd/MM');
@@ -240,7 +247,6 @@ export default function Home() {
       let bId = null;
 
       if (existing && existing.length > 0) {
-        // לקוחה קיימת - מעדכנים קוד בשורה קיימת
         const { data } = await supabase.from('bookings')
           .update({ verification_code: code })
           .eq('id', existing[0].id)
@@ -248,19 +254,18 @@ export default function Home() {
           .single();
         bId = data?.id;
       } else {
-        // לקוחה חדשה - יוצרים שורת אימות עם כל שדות החובה
         const { data, error } = await supabase.from('bookings').insert([{ 
           customer_phone: phoneDigits, 
           verification_code: code, 
           service_id: 'verification', 
           service_title: 'אימות מערכת', 
-          service_duration: 0, // שדה חובה ב-DB
+          service_duration: 0, 
           customer_name: 'לקוחה חדשה', 
           date: format(new Date(), 'yyyy-MM-dd'), 
           start_time: '00:00', 
           end_time: '00:00', 
           status: 'confirmed',
-          cancellation_token: uuidv4() // שדה חובה ב-DB
+          cancellation_token: uuidv4() 
         }]).select().single();
         
         if (error) {
@@ -282,12 +287,13 @@ export default function Home() {
       return;
     }
     
+    // שליפת כל התורים שאינם מבוטלים (גם עתידיים וגם קודמים כדי שהן יראו היסטוריה קרובה, אך ללא אפשרות ביטול לתורים שעברו)
     const { data } = await supabase.from('bookings')
       .select('*')
       .eq('customer_phone', phoneDigits)
       .neq('service_id', 'verification')
       .in('status', ['confirmed'])
-      .order('date');
+      .order('date', { ascending: false }); // סידור מהחדש לישן
 
     setMyAppointments(data || []);
     setAppointmentsVerified(true);
@@ -295,7 +301,6 @@ export default function Home() {
 
   const handleAppointmentsVerification = async () => {
     const phoneDigits = appointmentsPhone.replace(/\D/g, '');
-    // התיקון: שולחים גם את ה-bookingId כדי שה-API ידע איפה לחפש את הקוד
     const res = await fetch('/api/verify', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
@@ -317,10 +322,18 @@ export default function Home() {
   };
 
   const handleCancelAppointment = async (id: string) => {
-    if (!confirm('לבטל את התור?')) return;
     const appToCancel = myAppointments.find(a => a.id === id);
+    if (!appToCancel) return;
+
+    // הגנה נוספת בקוד: חסימת ביטול אם התור כבר התחיל או עבר
+    if (isBookingPast(appToCancel.date, appToCancel.start_time)) {
+      alert('לא ניתן לבטל תור שזמנו כבר הגיע או עבר.');
+      return;
+    }
+
+    if (!confirm('לבטל את התור?')) return;
     const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
-    if (!error && appToCancel) {
+    if (!error) {
       const formattedDate = formatDateString(appToCancel.date);
       const managerCancelMessage = `אדר, לקוחה ביטלה תור:\nשם: ${appToCancel.customer_name}\nזמן: ${formattedDate} בשעה ${appToCancel.start_time}\nטיפול: ${appToCancel.service_title}`;
       try {
@@ -453,14 +466,30 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {myAppointments.length === 0 ? <p className="text-center py-10 opacity-30 italic">אין תורים עתידיים</p> : 
-                    myAppointments.map((app) => (
-                      <div key={app.id} className="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm transition-all hover:shadow-md text-right">
-                        <h4 className="font-medium text-slate-800 text-lg mb-1">{app.service_title}</h4>
-                        <p className="text-slate-400 text-xs mb-6">{formatDateString(app.date)} בשעה {app.start_time}</p>
-                        <button onClick={() => handleCancelAppointment(app.id!)} className="text-red-400 font-bold text-[9px] uppercase tracking-[0.2em] hover:text-red-600 transition-colors underline underline-offset-8">ביטול תור</button>
-                      </div>
-                    ))
+                  {myAppointments.length === 0 ? <p className="text-center py-10 opacity-30 italic">אין תורים רשומים</p> : 
+                    myAppointments.map((app) => {
+                      const isPast = isBookingPast(app.date, app.start_time);
+                      return (
+                        <div key={app.id} className="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm transition-all hover:shadow-md text-right">
+                          <h4 className="font-medium text-slate-800 text-lg mb-1">{app.service_title}</h4>
+                          <p className="text-slate-400 text-xs mb-6">{formatDateString(app.date)} בשעה {app.start_time}</p>
+                          
+                          {/* תנאי רינדור דינמי המונע ביטול לתור שעבר זמנו */}
+                          {isPast ? (
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl">
+                              בוצע
+                            </span>
+                          ) : (
+                            <button 
+                              onClick={() => handleCancelAppointment(app.id!)} 
+                              className="text-red-400 font-bold text-[9px] uppercase tracking-[0.2em] hover:text-red-600 transition-colors underline underline-offset-8"
+                            >
+                              ביטול תור
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
                   }
                   <button onClick={() => { clearAllSessions(); setAppointmentsVerified(false); }} className="w-full text-[9px] text-slate-300 tracking-[0.3em] uppercase mt-10 font-bold hover:text-slate-500 transition-colors flex items-center justify-center gap-2"><RotateCcw size={10} /> Log out / Change Number</button>
                 </div>
