@@ -195,25 +195,71 @@ export default function Home() {
   }, [selectedServiceData, selectedDate, bookings, blockedTimeSlots, dailySchedule]);
 
   const handleWhatsAppBooking = async () => {
-    if (!selectedServiceData || !selectedDate || !selectedTime || !customerName || !isFormValid) return;
+    if (!selectedServiceData || !selectedDate || !selectedTime || !customerName || !isFormValid || savingBooking) return;
     setSavingBooking(true);
     try {
       const phoneDigits = customerPhone.replace(/\D/g, '');
       const hasActiveSession = isPhoneVerified(phoneDigits);
       let vCode = '';
+      
+      // אם אין סשן פעיל - מייצרים קוד אימות חדש
       if (!hasActiveSession) {
         vCode = Math.floor(1000 + Math.random() * 9000).toString();
-        await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneDigits, code: vCode, customerName: customerName.trim() })});
+        await fetch('/api/sms', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ phone: phoneDigits, code: vCode, customerName: customerName.trim() })
+        });
       }
+
       const slot = availableSlots.find(s => s.key === selectedTime);
-      const newBooking = { service_id: selectedServiceData.id, service_title: selectedServiceData.title, service_duration: selectedServiceData.durationMinutes, date: format(selectedDate, 'yyyy-MM-dd'), start_time: slot!.start, end_time: slot!.end, customer_name: customerName.trim(), customer_phone: phoneDigits, cancellation_token: uuidv4(), status: 'confirmed', is_verified: hasActiveSession, verification_code: vCode || undefined };
+      if (!slot) {
+        alert('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+        setSavingBooking(false);
+        return;
+      }
+
+      const newBooking = { 
+        service_id: selectedServiceData.id, 
+        service_title: selectedServiceData.title, 
+        service_duration: selectedServiceData.durationMinutes, 
+        date: format(selectedDate, 'yyyy-MM-dd'), 
+        start_time: slot.start, 
+        end_time: slot.end, 
+        customer_name: customerName.trim(), 
+        customer_phone: phoneDigits, 
+        cancellation_token: uuidv4(), 
+        status: 'confirmed', 
+        is_verified: hasActiveSession, // ייכנס כ-true אם כבר מאומתת
+        verification_code: vCode || undefined 
+      };
+
       const { data, error } = await supabase.from('bookings').insert([newBooking]).select().single();
       if (error) throw error;
+      
       if (data) {
-        if (hasActiveSession) { await sendConfirmationNotifications(data); setStep('success'); }
-        else { setCurrentBookingId(data.id); setStep('verification'); setVerificationCode(''); }
+        if (hasActiveSession) {
+          // קריטי: ממתינים שהודעות ה-SMS יישלחו במלואן לפני המעבר למסך הבא
+          try {
+            await sendConfirmationNotifications(data);
+          } catch (smsError) {
+            console.error('שגיאה בשליחת ה-SMS אך התור נקבע:', smsError);
+          }
+          // רק לאחר מכן עוברים למסך הצלחה
+          setStep('success'); 
+        } else { 
+          // אם נדרש אימות - עוברים למסך ה-OTP
+          setCurrentBookingId(data.id); 
+          setStep('verification'); 
+          setVerificationCode(''); 
+        }
       }
-    } catch (e) { alert('שגיאה ברישום התור.'); } finally { setSavingBooking(false); }
+    } catch (e) { 
+      console.error(e);
+      alert('שגיאה ברישום התור. אנא נסי שנית.'); 
+    } finally { 
+      setSavingBooking(false); 
+    }
   };
 
   const handleVerification = async () => {
