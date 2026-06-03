@@ -84,20 +84,41 @@ export default function Home() {
   const [appointmentsNeedsVerification, setAppointmentsNeedsVerification] = useState(false);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); 
-  const [appointmentsError, setAppointmentsError] = useState<string>(''); // סטייט חדש לשגיאה אלגנטית
+  const [appointmentsError, setAppointmentsError] = useState<string>(''); 
   
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
 
-  const services = [
-    { id: 'anatomical-gel', title: "מבנה אנטומי - ג'ל בנייה", price: "150 ₪", duration: "90 דקות", durationMinutes: 90 },
-    { id: 'anatomical-gel-extended', title: "בנייה חדשה בטיפס ג'ל", price: "250 ₪", duration: "150 דקות", durationMinutes: 150 },
-    { id: 'gel-pedicure', title: "לק ג'ל רגליים", price: "100 ₪", duration: "40 דקות", durationMinutes: 40 },
-    { id: 'eyebrows-mustache', title: "גבות / שפם", price: "60 ₪", duration: "20 דקות", durationMinutes: 20 },
-  ];
+  // סטייט חדש לשירותים דינמיים מתוך ה-Database
+  const [services, setServices] = useState<any[]>([]);
 
-  const selectedServiceData = services.find(s => s.id === selectedService);
+  // שליפת השירותים מ-Supabase ברגע שהאפליקציה עולה
+  useEffect(() => {
+    const fetchServices = async () => {
+      const { data, error } = await supabase
+        .from('services')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (!error && data) {
+        setServices(data);
+      }
+    };
+    fetchServices();
+  }, []);
+
+  // מיפוי דינמי של השירות הנבחר לצורך לוגיקת משבצות הזמן הפנויות
+  const selectedServiceData = useMemo(() => {
+    const found = services.find(s => s.id === selectedService);
+    if (!found) return null;
+    return {
+      id: found.id,
+      title: found.title,
+      price: found.price,
+      duration: found.duration,
+      durationMinutes: found.duration_minutes // שדה ה-DB מותאם ללוגיקה הפנימית
+    };
+  }, [services, selectedService]);
 
   const isValidPhoneNumber = (phone: string): boolean => { 
     const digits = phone.replace(/\D/g, ''); 
@@ -115,6 +136,7 @@ export default function Home() {
   const sendConfirmationNotifications = async (booking: any) => {
     const formattedDate = format(parseDateString(booking.date), 'dd/MM');
     const formattedTime = booking.start_time.slice(0, 5);
+    // שם הטיפול נלקח בצורה דינמית לחלוטין מתוך הרשומה שנשמרה
     const customerMessage = `שלום ${booking.customer_name}.,\nנקבע לך תור אצל Adar Cosmetics\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nקישור לאינסטגרם:\nhttps://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
     const managerMessage = `אדר, נקבע תור חדש!\nלקוחה: ${booking.customer_name}\nטיפול: ${booking.service_title}\nזמן: ${formattedDate} בשעה ${formattedTime}\nטלפון: ${booking.customer_phone}`;
     try {
@@ -219,6 +241,7 @@ export default function Home() {
         return;
       }
 
+      // הנתונים של השירות נרשמים באופן דינמי לחלוטין מתוך הטבלה
       const newBooking = { 
         service_id: selectedServiceData.id, 
         service_title: selectedServiceData.title, 
@@ -277,9 +300,8 @@ export default function Home() {
   const fetchMyAppointments = async (phone: string, skipVerification = false) => {
     const phoneDigits = phone.replace(/\D/g, '');
     setAppointmentsLoading(true);
-    setAppointmentsError(''); // איפוס שגיאה קודמת בלחיצה
+    setAppointmentsError('');
 
-    // 1. שולפים תורים קיימים פעילים של המספר הזה (ללא שורות אימות)
     const { data: existing } = await supabase.from('bookings')
       .select('*')
       .eq('customer_phone', phoneDigits)
@@ -287,27 +309,23 @@ export default function Home() {
       .in('status', ['confirmed'])
       .order('date', { ascending: false });
 
-    // 2. ההגנה המושלמת: אם מחקת את עצמך או שאתה לקוח חדש לחלוטין ואין תורים בדאטה - עצור פה מייד!
     if (!existing || existing.length === 0) {
-      setAppointmentsError('לא נמצאו תורים רשומים עבור מספר טלפון זה.'); // שגיאה אלגנטית ומובנית
+      setAppointmentsError('לא נמצאו תורים רשומים עבור מספר טלפון זה.');
       clearAllSessions(); 
       setAppointmentsVerified(false);
       setAppointmentsLoading(false);
       return; 
     }
 
-    // 3. אם יש תורים אבל הנייד עדיין לא מאומת בסשן הנוכחי - שולחים קוד אבטחה
     if (!skipVerification && !isPhoneVerified(phoneDigits)) {
       const code = Math.floor(1000 + Math.random() * 9000).toString();
 
-      // מעדכנים את קוד האימות ישירות על התור האחרון הקיים (מונע יצירת שורות חדשות)
       await supabase.from('bookings')
         .update({ verification_code: code })
         .eq('id', existing[0].id);
         
       setAppointmentsBookingId(existing[0].id);
 
-      // שליחת הודעה עם השם האמיתי של הלקוחה שנמצא בבסיס הנתונים
       await fetch('/api/sms', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
@@ -319,7 +337,6 @@ export default function Home() {
       return;
     }
     
-    // 4. אם המשתמשת כבר מאומתת (או אחרי אימות מוצלח) - מציגים את התורים
     setMyAppointments(existing || []);
     setAppointmentsVerified(true);
     setAppointmentsLoading(false);
@@ -363,7 +380,7 @@ export default function Home() {
     }
 
     if (!confirm('לבטל את התור?')) return;
-    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
+    const { error = null } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
     if (!error) {
       const formattedDate = formatDateString(appToCancel.date);
       const managerCancelMessage = `אדר, לקוחה ביטלה תור:\nשם: ${appToCancel.customer_name}\nזמן: ${formattedDate} בשעה ${appToCancel.start_time}\nטיפול: ${appToCancel.service_title}`;
@@ -405,6 +422,7 @@ export default function Home() {
         {step === 'services' && (
           <div className="space-y-6 animate-in fade-in duration-1000">
             <div className="grid grid-cols-1 gap-4">
+              {/* רינדור דינמי מלא מתוך ה-State שמחובר לטבלה ב-Supabase */}
               {services.map((s) => (
                 <div key={s.id} onClick={() => setSelectedService(s.id)} className={`group cursor-pointer p-7 rounded-[2rem] transition-all border shadow-sm ${selectedService === s.id ? 'border-[#c9a961] bg-[#E5E1D8]' : 'border-slate-100 bg-[#FAF9F6] hover:bg-white'}`}>
                   <div className="flex justify-between items-center">
@@ -416,6 +434,9 @@ export default function Home() {
                   </div>
                 </div>
               ))}
+              {services.length === 0 && (
+                <p className="text-center py-12 text-slate-400 font-light text-sm animate-pulse">טוען רשימת טיפולים מעודכנת...</p>
+              )}
             </div>
             <div className="flex justify-center pt-8"><button onClick={() => setStep('calendar')} disabled={!selectedService} className={`px-16 py-4 rounded-full font-semibold transition-all shadow-lg text-sm tracking-widest uppercase ${selectedService ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-300'}`}>המשך לבחירת זמן</button></div>
           </div>
@@ -493,7 +514,6 @@ export default function Home() {
                 <div className="space-y-8 text-center">
                   <p className="text-slate-400 text-sm">הזיני מספר טלפון כדי לצפות בתורים שלך</p>
                   
-                  {/* הצגת הודעת השגיאה האלגנטית בתוך המערכת מתחת לטקסט ההסבר */}
                   {appointmentsError && (
                     <p className="text-red-500 text-[11px] font-bold uppercase tracking-wider animate-in fade-in bg-red-50/50 border border-red-100 rounded-xl py-2 px-4 max-w-xs mx-auto">
                       {appointmentsError}
@@ -513,7 +533,6 @@ export default function Home() {
                           <h4 className="font-medium text-slate-800 text-lg mb-1">{app.service_title}</h4>
                           <p className="text-slate-400 text-xs mb-6">{formatDateString(app.date)} בשעה {app.start_time}</p>
                           
-                          {/* תנאי רינדור דינמי המונע ביטול לתור שעבר זמנו */}
                           {isPast ? (
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl">
                               בוצע

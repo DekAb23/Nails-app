@@ -6,10 +6,11 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { 
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone, 
-  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus
 } from 'lucide-react';
 import { supabase, Booking, BlockedDate, DailySchedule, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
+import { v4 as uuidv4 } from 'uuid'; // וידוא שימוש ב-uuid ליצירת מזהים אוטומטיים
 
 // --- Type definitions ---
 type BlockedTimeSlot = {
@@ -87,7 +88,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [activeTab, setActiveTab] = useState<'daily' | 'calendar' | 'customers' | 'activity'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'calendar' | 'customers' | 'services' | 'activity'>('daily');
   const [isQuickCalendarOpen, setIsQuickCalendarOpen] = useState(false);
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -98,6 +99,12 @@ export default function AdminPage() {
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   
+  // States לניהול השירותים
+  const [dbServices, setDbServices] = useState<any[]>([]);
+  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+  const [editingService, setEditingService] = useState<any | null>(null);
+  const [serviceForm, setServiceForm] = useState({ title: '', price: '', duration: '', duration_minutes: 30 });
+
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('16:00');
@@ -124,7 +131,10 @@ export default function AdminPage() {
     const { data: ds } = await supabase.from('daily_schedules').select('*').order('date');
     const { data: bts } = await supabase.from('blocked_time_slots').select('*').order('date');
     const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20);
+    const { data: s } = await supabase.from('services').select('*').order('created_at', { ascending: true });
+    
     setBookings(b || []); setBlockedDates(bd || []); setDailySchedules(ds || []); setBlockedTimeSlots(bts || []); setActivities(al || []);
+    setDbServices(s || []);
   };
 
   // מנוע חישוב וסינון לקוחות מתוך הדאטה (עם ניקוי שורות אימות)
@@ -133,7 +143,6 @@ export default function AdminPage() {
     const customerMap: Record<string, { name: string; dates: string[]; services: Record<string, number> }> = {};
 
     bookings.forEach(b => {
-      // סינון מספר מנהלת וסינון מוחלט של שורות אימות דמה זמניות
       if (b.customer_phone === adminPhone || b.service_id === 'verification' || b.customer_name === 'לקוחה חדשה') return;
 
       if (!customerMap[b.customer_phone]) {
@@ -170,7 +179,6 @@ export default function AdminPage() {
       };
     });
 
-    // פיצול דינמי לצורך הקארדים החדשים
     const מתמידות = allCalculated.filter(c => c.totalBookings > 1).sort((a, b) => b.totalBookings - a.totalBookings);
     const חדשות = allCalculated.filter(c => c.totalBookings === 1);
 
@@ -182,10 +190,8 @@ export default function AdminPage() {
     };
   }, [bookings]);
 
-  // רשימת הלקוחות להצגה בלשונית (משתמש במערך הלקוחות המתמידות שחושב מעלה)
   const loyalCustomers = customerBaseStats.loyalCustomers;
 
-  // לוגיקת סינון לקוחות בזמן אמת לפי תיבת החיפוש
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) return loyalCustomers;
     
@@ -195,6 +201,68 @@ export default function AdminPage() {
       c.phone.includes(cleanSearch)
     );
   }, [loyalCustomers, searchTerm]);
+
+  const handleOpenServiceModal = (service: any = null) => {
+    if (service) {
+      setEditingService(service);
+      setServiceForm({
+        title: service.title,
+        price: service.price,
+        duration: service.duration,
+        duration_minutes: service.duration_minutes
+      });
+    } else {
+      setEditingService(null);
+      setServiceForm({ title: '', price: '', duration: '', duration_minutes: 30 });
+    }
+    setIsServiceModalOpen(true);
+  };
+
+  const handleSaveService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serviceForm.title || !serviceForm.price || !serviceForm.duration) {
+      alert('אנא מלאי את כל השדות בשירות.');
+      return;
+    }
+
+    let error = null;
+    if (editingService) {
+      // בעריכה - מעדכנים לפי ה-id הקיים
+      const payload = {
+        title: serviceForm.title.trim(),
+        price: serviceForm.price.trim(),
+        duration: serviceForm.duration.trim(),
+        duration_minutes: Number(serviceForm.duration_minutes)
+      };
+      const { error: err } = await supabase.from('services').update(payload).eq('id', editingService.id);
+      error = err;
+    } else {
+      // בהוספה חדשה - המערכת מייצרת ID ייחודי אוטומטית מאחורי הקלעים!
+      const payload = {
+        id: uuidv4(), // מזהה אוטומטי לחלוטין
+        title: serviceForm.title.trim(),
+        price: serviceForm.price.trim(),
+        duration: serviceForm.duration.trim(),
+        duration_minutes: Number(serviceForm.duration_minutes)
+      };
+      const { error: err } = await supabase.from('services').insert([payload]);
+      error = err;
+    }
+
+    if (error) {
+      alert('שגיאה בשמירת השירות.');
+    } else {
+      setIsServiceModalOpen(false);
+      fetchData();
+    }
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!confirm('האם את בטוחה שברצונך למחוק שירות זה? לקוחות לא יוכלו להזמין אותו יותר.')) return;
+    const { error } = await supabase.from('services').delete().eq('id', id);
+    if (error) alert('לא ניתן למחוק את השירות.');
+    else fetchData();
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -281,12 +349,17 @@ export default function AdminPage() {
         </div>
         
         <div className="max-w-2xl mx-auto grid grid-cols-3 gap-3">
-          {/* מנגנון רינדור דינמי לקארדים עליונים בהתאם ללשונית שנבחרה */}
           {activeTab === 'customers' ? (
             <>
               <StatCard title="מתמידות" value={customerBaseStats.loyalCustomers.length} icon={Star} color="gold" />
               <StatCard title="מזדמנות" value={customerBaseStats.newCustomersCount} icon={Sparkles} color="blue" />
               <StatCard title="סך הכל לקוחות" value={customerBaseStats.totalActiveCount} icon={Users} color="gold" />
+            </>
+          ) : activeTab === 'services' ? (
+            <>
+              <StatCard title="סך הכל טיפולים" value={dbServices.length} icon={Sparkles} color="gold" />
+              <StatCard title="זמן קצר ביותר" value={dbServices.length > 0 ? `${Math.min(...dbServices.map(s => s.duration_minutes))} דק'` : '0'} icon={Clock} color="blue" />
+              <StatCard title="שירותים באוויר" value={dbServices.length} icon={Activity} color="blue" />
             </>
           ) : (
             <>
@@ -313,7 +386,6 @@ export default function AdminPage() {
               <button onClick={() => changeDay(1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronLeft size={20}/></button>
             </div>
 
-            {/* מודאל צף לבחירת תאריך מהירה */}
             {isQuickCalendarOpen && (
               <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsQuickCalendarOpen(false)}>
                 <div className="bg-white/95 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white/60 shadow-2xl text-center max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
@@ -466,7 +538,6 @@ export default function AdminPage() {
               </div>
               <p className="text-[10px] text-slate-400 mb-4">רשימת הלקוחות הנאמנות שביצעו יותר מתור אחד במערכת (לא כולל המנהלת).</p>
               
-              {/* תיבת חיפוש מהיר */}
               <div className="relative mb-5">
                 <input 
                   type="text" 
@@ -579,6 +650,135 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* --- לשונית ניהול שירותים דינמית --- */}
+        {activeTab === 'services' && (
+          <div className="space-y-5 animate-in fade-in duration-500">
+            <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <Sparkles size={18} className="text-[#c9a961]" />
+                  <h2 className="text-xs font-black uppercase tracking-widest text-slate-900">מחירון ותפריט שירותים דינמי</h2>
+                </div>
+                <button 
+                  onClick={() => handleOpenServiceModal()}
+                  className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                >
+                  <Plus size={12} /> הוספת שירות
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 mb-6">עדכון, הוספה ומחיקה של טיפולים המופיעים ישירות בדף הזימון הראשי של הלקוחות.</p>
+
+              <div className="grid grid-cols-1 gap-3">
+                {dbServices.map((service) => (
+                  <div key={service.id} className="bg-[#FDFBF6]/40 border border-slate-100 p-5 rounded-2xl flex justify-between items-center shadow-sm text-right transition-all hover:bg-white">
+                    <div className="text-right flex-1 pl-4">
+                      <h4 className="font-bold text-slate-900 text-sm mb-1">{service.title}</h4>
+                      <div className="flex items-center gap-4 mt-1.5">
+                        <span className="text-xs text-[#b8964f] font-black">{service.price}</span>
+                        <span className="text-[10px] text-slate-300 font-bold uppercase tracking-tight">• {service.duration} ({service.duration_minutes} דק')</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleOpenServiceModal(service)}
+                        className="w-8 h-8 bg-slate-100 text-slate-600 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteService(service.id)}
+                        className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center hover:bg-red-100 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {dbServices.length === 0 && (
+                  <p className="text-xs text-slate-300 text-center py-12">אין שירותים רשומים כרגע בבסיס הנתונים.</p>
+                )}
+              </div>
+            </div>
+
+            {/* מודאל צף להוספה או עריכה של שירות */}
+            {isServiceModalOpen && (
+              <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsServiceModalOpen(false)}>
+                <form 
+                  onSubmit={handleSaveService}
+                  className="bg-white/95 backdrop-blur-xl p-6 md:p-8 rounded-[2.5rem] border border-white/60 shadow-2xl text-right max-w-sm w-full animate-in zoom-in-95 duration-200 space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">
+                      {editingService ? 'עריכת שירות קיים' : 'הוספת שירות חדש'}
+                    </span>
+                    <button type="button" onClick={() => setIsServiceModalOpen(false)} className="bg-slate-100 p-1.5 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">שם הטיפול</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={serviceForm.title}
+                        onChange={e => setServiceForm({...serviceForm, title: e.target.value})}
+                        placeholder="לדוגמה: מבנה אנטומי - ג'ל"
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">מחיר לתצוגה</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={serviceForm.price}
+                        onChange={e => setServiceForm({...serviceForm, price: e.target.value})}
+                        placeholder="לדוגמה: 150 ₪"
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">זמן טיפול לתצוגה</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={serviceForm.duration}
+                        onChange={e => setServiceForm({...serviceForm, duration: e.target.value})}
+                        placeholder="לדוגמה: 90 דקות"
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">זמן בדקות (לחישוב ביומן)</label>
+                      <input 
+                        type="number" 
+                        required
+                        min={5}
+                        max={300}
+                        step={5}
+                        value={serviceForm.duration_minutes}
+                        onChange={e => setServiceForm({...serviceForm, duration_minutes: Number(e.target.value)})}
+                        placeholder="לדוגמה: 90"
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium tabular-nums"
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit"
+                    className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all pt-3.5"
+                  >
+                    {editingService ? 'עדכון שירות בדאטה' : 'שמירה והעלאה לאוויר'}
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'activity' && (
           <div className="bg-white/80 backdrop-blur-xl p-7 rounded-[2.5rem] border border-white/40 shadow-sm animate-in fade-in duration-500">
             <div className="flex items-center gap-3 mb-7 border-b border-slate-100 pb-5 text-right"><History size={18} className="text-[#c9a961]" /><h2 className="text-xs font-black uppercase tracking-widest text-right">פעילות אחרונה</h2></div>
@@ -597,20 +797,23 @@ export default function AdminPage() {
         )}
       </main>
 
-      {/* בר ניווט תחתון עם 4 לשוניות */}
-      <div className="fixed bottom-5 left-6 right-6 z-[120] max-w-sm mx-auto">
-        <div className="bg-slate-900/95 backdrop-blur-2xl rounded-[2rem] p-1.5 flex justify-between items-center shadow-2xl border border-white/10">
+      {/* בר ניווט תחתון משודרג עם 5 לשוניות מותאמות באופן מושלם */}
+      <div className="fixed bottom-5 left-4 right-4 z-[120] max-w-md mx-auto">
+        <div className="bg-slate-900/95 backdrop-blur-2xl rounded-[2rem] p-1.5 flex justify-between items-center shadow-2xl border border-white/10 gap-1">
           <button onClick={() => setActiveTab('daily')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'daily' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-500'}`}>
-            <Clock size={15}/><span className="text-[8px] font-black uppercase mt-1">לו"ז</span>
+            <Clock size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">לו"ז</span>
           </button>
           <button onClick={() => setActiveTab('calendar')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'calendar' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <CalendarIcon size={15}/><span className="text-[8px] font-black uppercase mt-1">ניהול</span>
+            <CalendarIcon size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">ניהול</span>
           </button>
           <button onClick={() => setActiveTab('customers')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'customers' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <Users size={15}/><span className="text-[8px] font-black uppercase mt-1">לקוחות</span>
+            <Users size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">לקוחות</span>
+          </button>
+          <button onClick={() => setActiveTab('services')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'services' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
+            <Sparkles size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">שירותים</span>
           </button>
           <button onClick={() => setActiveTab('activity')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'activity' ? 'bg-blue-500 text-white shadow-xl' : 'text-slate-500'}`}>
-            <History size={15}/><span className="text-[8px] font-black uppercase mt-1">פעילות</span>
+            <History size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">פעילות</span>
           </button>
         </div>
       </div>
