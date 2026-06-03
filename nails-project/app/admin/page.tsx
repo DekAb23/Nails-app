@@ -6,7 +6,7 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { 
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone, 
-  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles
 } from 'lucide-react';
 import { supabase, Booking, BlockedDate, DailySchedule, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -42,7 +42,7 @@ function StatCard({ title, value, icon: Icon, color }: any) {
   };
 
   return (
-    <div className={`backdrop-blur-2xl bg-white/60 border ${colorStyles[color].split(' ')[2]} p-3 md:p-4 rounded-2xl md:rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center`}>
+    <div className={`backdrop-blur-2xl bg-white/60 border ${colorStyles[color].split(' ')[2]} p-3 md:p-4 rounded-2xl md:rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center w-full`}>
       <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-tighter mb-1.5">{title}</p>
       <div className="flex items-center gap-2">
         <Icon size={14} className={colorStyles[color].split(' ')[1]} />
@@ -127,13 +127,14 @@ export default function AdminPage() {
     setBookings(b || []); setBlockedDates(bd || []); setDailySchedules(ds || []); setBlockedTimeSlots(bts || []); setActivities(al || []);
   };
 
-  // מנוע חישוב וסינון לקוחות קבועות
-  const loyalCustomers = useMemo(() => {
+  // מנוע חישוב וסינון לקוחות מתוך הדאטה (עם ניקוי שורות אימות)
+  const customerBaseStats = useMemo(() => {
     const adminPhone = '0508917748';
     const customerMap: Record<string, { name: string; dates: string[]; services: Record<string, number> }> = {};
 
     bookings.forEach(b => {
-      if (b.customer_phone === adminPhone) return;
+      // סינון מספר מנהלת וסינון מוחלט של שורות אימות דמה זמניות
+      if (b.customer_phone === adminPhone || b.service_id === 'verification' || b.customer_name === 'לקוחה חדשה') return;
 
       if (!customerMap[b.customer_phone]) {
         customerMap[b.customer_phone] = {
@@ -147,32 +148,42 @@ export default function AdminPage() {
       customerMap[b.customer_phone].services[b.service_title] = (customerMap[b.customer_phone].services[b.service_title] || 0) + 1;
     });
 
-    return Object.entries(customerMap)
-      .map(([phone, data]) => {
-        const sortedDates = [...data.dates].sort((a, b) => a.localeCompare(b));
-        
-        // מציאת השירות המבוקש ביותר
-        let favoriteService = 'לא מוגדר';
-        let maxCount = 0;
-        Object.entries(data.services).forEach(([service, count]) => {
-          if (count > maxCount) {
-            maxCount = count;
-            favoriteService = service;
-          }
-        });
+    const allCalculated = Object.entries(customerMap).map(([phone, data]) => {
+      const sortedDates = [...data.dates].sort((a, b) => a.localeCompare(b));
+      
+      let favoriteService = 'לא מוגדר';
+      let maxCount = 0;
+      Object.entries(data.services).forEach(([service, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          favoriteService = service;
+        }
+      });
 
-        return {
-          phone,
-          name: data.name,
-          totalBookings: data.dates.length,
-          firstVisit: sortedDates[0],
-          lastVisit: sortedDates[sortedDates.length - 1],
-          favoriteService
-        };
-      })
-      .filter(c => c.totalBookings > 1) // מציג רק לקוחות קבועות (יותר מתור 1)
-      .sort((a, b) => b.totalBookings - a.totalBookings); // מיון לפי כמות תורים (הכי קבועות למעלה)
+      return {
+        phone,
+        name: data.name,
+        totalBookings: data.dates.length,
+        firstVisit: sortedDates[0],
+        lastVisit: sortedDates[sortedDates.length - 1],
+        favoriteService
+      };
+    });
+
+    // פיצול דינמי לצורך הקארדים החדשים
+    const מתמידות = allCalculated.filter(c => c.totalBookings > 1).sort((a, b) => b.totalBookings - a.totalBookings);
+    const חדשות = allCalculated.filter(c => c.totalBookings === 1);
+
+    return {
+      allCustomers: allCalculated,
+      loyalCustomers: מתמידות,
+      newCustomersCount: חדשות.length,
+      totalActiveCount: allCalculated.length
+    };
   }, [bookings]);
+
+  // רשימת הלקוחות להצגה בלשונית (משתמש במערך הלקוחות המתמידות שחושב מעלה)
+  const loyalCustomers = customerBaseStats.loyalCustomers;
 
   // לוגיקת סינון לקוחות בזמן אמת לפי תיבת החיפוש
   const filteredCustomers = useMemo(() => {
@@ -270,9 +281,20 @@ export default function AdminPage() {
         </div>
         
         <div className="max-w-2xl mx-auto grid grid-cols-3 gap-3">
-          <StatCard title="היום" value={bookings.filter(b => b.date === todayStr && b.customer_phone !== '0508917748').length} icon={Clock} color="blue" />
-          <StatCard title="קבועות" value={loyalCustomers.length} icon={Users} color="gold" />
-          <StatCard title="חסימות" value={blockedDates.filter(bd => bd.date >= todayStr).length} icon={XCircle} color="red" />
+          {/* מנגנון רינדור דינמי לקארדים עליונים בהתאם ללשונית שנבחרה */}
+          {activeTab === 'customers' ? (
+            <>
+              <StatCard title="מתמידות" value={customerBaseStats.loyalCustomers.length} icon={Star} color="gold" />
+              <StatCard title="מזדמנות" value={customerBaseStats.newCustomersCount} icon={Sparkles} color="blue" />
+              <StatCard title="סך הכל לקוחות" value={customerBaseStats.totalActiveCount} icon={Users} color="gold" />
+            </>
+          ) : (
+            <>
+              <StatCard title="היום" value={bookings.filter(b => b.date === todayStr && b.customer_phone !== '0508917748').length} icon={Clock} color="blue" />
+              <StatCard title="קבועות" value={customerBaseStats.loyalCustomers.length} icon={Users} color="gold" />
+              <StatCard title="חסימות" value={blockedDates.filter(bd => bd.date >= todayStr).length} icon={XCircle} color="red" />
+            </>
+          )}
         </div>
       </div>
 
@@ -291,7 +313,7 @@ export default function AdminPage() {
               <button onClick={() => changeDay(1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronLeft size={20}/></button>
             </div>
 
-            {/* מודאל צף לבחירת תאריך מהירה (זהה ללוח השנה הראשי עם כל הצבעים) */}
+            {/* מודאל צף לבחירת תאריך מהירה */}
             {isQuickCalendarOpen && (
               <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsQuickCalendarOpen(false)}>
                 <div className="bg-white/95 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white/60 shadow-2xl text-center max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
@@ -380,7 +402,7 @@ export default function AdminPage() {
 
             <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
               <div className="flex items-center gap-2.5 mb-5 text-right"><Hand size={15} className="text-[#c9a961]" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">הוספת הפסקה (חסימת שעות)</h2></div>
-              <p className="text-[9px] text-slate-400 mb-4 leading-tight">לקוחות לא יוכלו לקבוע תורים בשעות אלו.</p>
+              <p className="text-[9px] text-slate-400 mb-4 leading-tight">לקוחות לא יוכלו קבוע תורים בשעות אלו.</p>
               <div className="flex flex-col gap-3">
                 <div className="flex gap-3 text-right">
                   <input type="time" value={breakStartTime} onChange={e => setBreakStartTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
@@ -435,7 +457,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* לשונית לקוחות עם חיפוש מובנה והיסטוריית טיפולים */}
         {activeTab === 'customers' && (
           <div className="space-y-5 animate-in fade-in duration-500">
             <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
@@ -471,20 +492,18 @@ export default function AdminPage() {
                   filteredCustomers.map(customer => {
                     const isExpanded = expandedCustomer === customer.phone;
                     
-                    // פילטר ומיון היסטוריית תורים של הלקוחה מהחדש לישן
                     const customerHistory = bookings
                       .filter(b => b.customer_phone === customer.phone)
                       .sort((a, b) => b.date.localeCompare(a.date) || b.start_time.localeCompare(a.start_time));
 
                     return (
                       <div key={customer.phone} className="bg-white border border-slate-100/80 rounded-2xl overflow-hidden transition-all shadow-sm">
-                        {/* כותרת כרטיס הלקוחה */}
                         <div 
                           onClick={() => setExpandedCustomer(isExpanded ? null : customer.phone)}
                           className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-[#c9a961]/10 text-[#b8964f] rounded-xl flex items-center justify-center font-bold text-xs tabular-nums">
+                            <div className="w-8 h-8 bg-slate-900 rounded-xl flex items-center justify-center font-bold text-xs tabular-nums text-white">
                               {customer.totalBookings}
                             </div>
                             <div>
@@ -500,11 +519,8 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        {/* מידע מורחב שנפתח בלחיצה */}
                         {isExpanded && (
                           <div className="px-4 pb-4 pt-1 bg-slate-50/40 border-t border-slate-50 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                            
-                            {/* כרטיסיות נתונים סטטיסטיים */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
                               <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
                                 <span className="text-[10px] font-bold text-slate-400">ביקור ראשון:</span>
@@ -520,7 +536,6 @@ export default function AdminPage() {
                               </div>
                             </div>
 
-                            {/* אזור היסטוריית טיפולים */}
                             <div className="bg-white rounded-xl border border-slate-100 p-3.5">
                               <div className="flex items-center gap-1.5 mb-3 border-b border-slate-50 pb-2">
                                 <History size={13} className="text-slate-400" />
@@ -544,7 +559,6 @@ export default function AdminPage() {
                               </div>
                             </div>
 
-                            {/* כפתורי פעולה מהירים */}
                             <div className="grid grid-cols-2 gap-2 pt-1">
                               <a href={`tel:${customer.phone}`} className="py-3 bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all">
                                 <Phone size={12}/> חיוג מהיר

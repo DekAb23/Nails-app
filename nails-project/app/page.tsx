@@ -84,6 +84,7 @@ export default function Home() {
   const [appointmentsNeedsVerification, setAppointmentsNeedsVerification] = useState(false);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); 
+  const [appointmentsError, setAppointmentsError] = useState<string>(''); // סטייט חדש לשגיאה אלגנטית
   
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
@@ -202,7 +203,6 @@ export default function Home() {
       const hasActiveSession = isPhoneVerified(phoneDigits);
       let vCode = '';
       
-      // אם אין סשן פעיל - מייצרים קוד אימות חדש
       if (!hasActiveSession) {
         vCode = Math.floor(1000 + Math.random() * 9000).toString();
         await fetch('/api/sms', { 
@@ -230,7 +230,7 @@ export default function Home() {
         customer_phone: phoneDigits, 
         cancellation_token: uuidv4(), 
         status: 'confirmed', 
-        is_verified: hasActiveSession, // ייכנס כ-true אם כבר מאומתת
+        is_verified: hasActiveSession, 
         verification_code: vCode || undefined 
       };
 
@@ -239,16 +239,13 @@ export default function Home() {
       
       if (data) {
         if (hasActiveSession) {
-          // קריטי: ממתינים שהודעות ה-SMS יישלחו במלואן לפני המעבר למסך הבא
           try {
             await sendConfirmationNotifications(data);
           } catch (smsError) {
             console.error('שגיאה בשליחת ה-SMS אך התור נקבע:', smsError);
           }
-          // רק לאחר מכן עוברים למסך הצלחה
           setStep('success'); 
         } else { 
-          // אם נדרש אימות - עוברים למסך ה-OTP
           setCurrentBookingId(data.id); 
           setStep('verification'); 
           setVerificationCode(''); 
@@ -279,53 +276,42 @@ export default function Home() {
 
   const fetchMyAppointments = async (phone: string, skipVerification = false) => {
     const phoneDigits = phone.replace(/\D/g, '');
-    if (!skipVerification && !isPhoneVerified(phoneDigits)) {
-      setAppointmentsLoading(true);
-      
-      const { data: existing } = await supabase.from('bookings')
-        .select('id')
-        .eq('customer_phone', phoneDigits)
-        .order('created_at', { ascending: false })
-        .limit(1);
+    setAppointmentsLoading(true);
+    setAppointmentsError(''); // איפוס שגיאה קודמת בלחיצה
 
+    // 1. שולפים תורים קיימים פעילים של המספר הזה (ללא שורות אימות)
+    const { data: existing } = await supabase.from('bookings')
+      .select('*')
+      .eq('customer_phone', phoneDigits)
+      .neq('service_id', 'verification')
+      .in('status', ['confirmed'])
+      .order('date', { ascending: false });
+
+    // 2. ההגנה המושלמת: אם מחקת את עצמך או שאתה לקוח חדש לחלוטין ואין תורים בדאטה - עצור פה מייד!
+    if (!existing || existing.length === 0) {
+      setAppointmentsError('לא נמצאו תורים רשומים עבור מספר טלפון זה.'); // שגיאה אלגנטית ומובנית
+      clearAllSessions(); 
+      setAppointmentsVerified(false);
+      setAppointmentsLoading(false);
+      return; 
+    }
+
+    // 3. אם יש תורים אבל הנייד עדיין לא מאומת בסשן הנוכחי - שולחים קוד אבטחה
+    if (!skipVerification && !isPhoneVerified(phoneDigits)) {
       const code = Math.floor(1000 + Math.random() * 9000).toString();
 
-      let bId = null;
-
-      if (existing && existing.length > 0) {
-        const { data } = await supabase.from('bookings')
-          .update({ verification_code: code })
-          .eq('id', existing[0].id)
-          .select()
-          .single();
-        bId = data?.id;
-      } else {
-        const { data, error } = await supabase.from('bookings').insert([{ 
-          customer_phone: phoneDigits, 
-          verification_code: code, 
-          service_id: 'verification', 
-          service_title: 'אימות מערכת', 
-          service_duration: 0, 
-          customer_name: 'לקוחה חדשה', 
-          date: format(new Date(), 'yyyy-MM-dd'), 
-          start_time: '00:00', 
-          end_time: '00:00', 
-          status: 'confirmed',
-          cancellation_token: uuidv4() 
-        }]).select().single();
+      // מעדכנים את קוד האימות ישירות על התור האחרון הקיים (מונע יצירת שורות חדשות)
+      await supabase.from('bookings')
+        .update({ verification_code: code })
+        .eq('id', existing[0].id);
         
-        if (error) {
-          console.error("Database Error:", error.message);
-        }
-        bId = data?.id;
-      }
-      
-      setAppointmentsBookingId(bId);
+      setAppointmentsBookingId(existing[0].id);
 
+      // שליחת הודעה עם השם האמיתי של הלקוחה שנמצא בבסיס הנתונים
       await fetch('/api/sms', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ phone: phoneDigits, code, customerName: 'לקוחה' })
+        body: JSON.stringify({ phone: phoneDigits, code, customerName: existing[0].customer_name || 'לקוחה' })
       });
 
       setAppointmentsNeedsVerification(true);
@@ -333,20 +319,20 @@ export default function Home() {
       return;
     }
     
-    // שליפת כל התורים שאינם מבוטלים (גם עתידיים וגם קודמים כדי שהן יראו היסטוריה קרובה, אך ללא אפשרות ביטול לתורים שעברו)
-    const { data } = await supabase.from('bookings')
-      .select('*')
-      .eq('customer_phone', phoneDigits)
-      .neq('service_id', 'verification')
-      .in('status', ['confirmed'])
-      .order('date', { ascending: false }); // סידור מהחדש לישן
-
-    setMyAppointments(data || []);
+    // 4. אם המשתמשת כבר מאומתת (או אחרי אימות מוצלח) - מציגים את התורים
+    setMyAppointments(existing || []);
     setAppointmentsVerified(true);
+    setAppointmentsLoading(false);
   };
 
   const handleAppointmentsVerification = async () => {
     const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+    
+    if (!appointmentsBookingId) {
+      setAppointmentsVerificationError('לא נמצא מזהה תור לאימות.');
+      return;
+    }
+
     const res = await fetch('/api/verify', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
@@ -371,7 +357,6 @@ export default function Home() {
     const appToCancel = myAppointments.find(a => a.id === id);
     if (!appToCancel) return;
 
-    // הגנה נוספת בקוד: חסימת ביטול אם התור כבר התחיל או עבר
     if (isBookingPast(appToCancel.date, appToCancel.start_time)) {
       alert('לא ניתן לבטל תור שזמנו כבר הגיע או עבר.');
       return;
@@ -397,7 +382,7 @@ export default function Home() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#FCFBFA] font-sans text-slate-900 selection:bg-[#c9a961]/20 overflow-x-hidden text-right">
-      <button onClick={() => { setShowMyAppointments(true); setMyAppointments([]); setAppointmentsPhone(''); setAppointmentsVerified(false); setAppointmentsNeedsVerification(false); setAppointmentsVerificationCode(''); }} className="fixed top-5 left-5 z-[100] bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-5 py-2.5 rounded-full shadow-sm transition-all text-xs font-semibold flex items-center gap-2 active:scale-95"><Calendar size={14} className="text-[#c9a961]" /> התורים שלי</button>
+      <button onClick={() => { setShowMyAppointments(true); setMyAppointments([]); setAppointmentsPhone(''); setAppointmentsVerified(false); setAppointmentsNeedsVerification(false); setAppointmentsVerificationCode(''); setAppointmentsError(''); }} className="fixed top-5 left-5 z-[100] bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-5 py-2.5 rounded-full shadow-sm transition-all text-xs font-semibold flex items-center gap-2 active:scale-95"><Calendar size={14} className="text-[#c9a961]" /> התורים שלי</button>
 
       <div className="relative w-full h-[40vh] md:h-[50vh] overflow-hidden">
         <Image src="/hero-bg.jpeg" alt="Adar Cosmetics" fill priority className="object-cover brightness-[0.85]" />
@@ -507,7 +492,15 @@ export default function Home() {
               ) : !appointmentsVerified ? (
                 <div className="space-y-8 text-center">
                   <p className="text-slate-400 text-sm">הזיני מספר טלפון כדי לצפות בתורים שלך</p>
-                  <input type="tel" value={appointmentsPhone} onChange={(e) => setAppointmentsPhone(e.target.value)} placeholder="050-0000000" className="w-full bg-white border border-slate-100 rounded-[2rem] px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-xl font-light shadow-sm" dir="ltr" />
+                  
+                  {/* הצגת הודעת השגיאה האלגנטית בתוך המערכת מתחת לטקסט ההסבר */}
+                  {appointmentsError && (
+                    <p className="text-red-500 text-[11px] font-bold uppercase tracking-wider animate-in fade-in bg-red-50/50 border border-red-100 rounded-xl py-2 px-4 max-w-xs mx-auto">
+                      {appointmentsError}
+                    </p>
+                  )}
+
+                  <input type="tel" value={appointmentsPhone} onChange={(e) => { setAppointmentsPhone(e.target.value); if(appointmentsError) setAppointmentsError(''); }} placeholder="050-0000000" className="w-full bg-white border border-slate-100 rounded-[2rem] px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-xl font-light shadow-sm" dir="ltr" />
                   <button onClick={() => fetchMyAppointments(appointmentsPhone)} disabled={appointmentsLoading} className="w-full py-5 bg-slate-900 text-white rounded-full font-bold shadow-2xl text-xs tracking-widest uppercase active:scale-95">{appointmentsLoading ? 'שולח קוד...' : 'חפש תורים'}</button>
                 </div>
               ) : (
