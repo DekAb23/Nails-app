@@ -462,7 +462,7 @@ export default function Home() {
             <h2 className="text-4xl font-serif italic text-slate-900">הבקשה נשלחה!</h2>
             <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm">
               התור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
-              ברגע שהתור יאושר בקונסול, תקבלי הודעת SMS למכשירך עם פרטי ההגעה המלאים והמדויקים! ❤️
+              ברגע שהתור יאושר , תקבלי הודעת SMS למכשירך עם פרטי התור המלאים ! ❤️
             </p>
             <button onClick={() => window.location.reload()} className="px-16 py-5 bg-slate-950 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-xs">סגור</button>
           </div>
