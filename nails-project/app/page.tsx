@@ -8,12 +8,11 @@ import { Instagram, Phone, Calendar, Check, X, Lock, Sparkles, ChevronLeft, Rota
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
-import { supabase, Booking, BlockedDate, BlockedTimeSlot, DailySchedule, logActivity } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, BlockedTimeSlot, DailySchedule } from '@/lib/supabase';
 import { isPhoneVerified, createVerifiedSession, clearAllSessions, getAllVerifiedPhones } from '@/lib/session';
 
 type Step = 'services' | 'calendar' | 'contact' | 'verification' | 'success';
 
-// --- רכיב 4 משבצות OTP אחיד ומעוצב ---
 function OTPInput({ value, onChange, error }: { value: string, onChange: (val: string) => void, error?: string }) {
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
   
@@ -89,25 +88,19 @@ export default function Home() {
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
-
-  // סטייט חדש לשירותים דינמיים מתוך ה-Database
   const [services, setServices] = useState<any[]>([]);
 
-  // שליפת השירותים מ-Supabase ברגע שהאפליקציה עולה
   useEffect(() => {
     const fetchServices = async () => {
       const { data, error } = await supabase
         .from('services')
         .select('*')
         .order('created_at', { ascending: true });
-      if (!error && data) {
-        setServices(data);
-      }
+      if (!error && data) setServices(data);
     };
     fetchServices();
   }, []);
 
-  // מיפוי דינמי של השירות הנבחר לצורך לוגיקת משבצות הזמן הפנויות
   const selectedServiceData = useMemo(() => {
     const found = services.find(s => s.id === selectedService);
     if (!found) return null;
@@ -116,7 +109,7 @@ export default function Home() {
       title: found.title,
       price: found.price,
       duration: found.duration,
-      durationMinutes: found.duration_minutes // שדה ה-DB מותאם ללוגיקה הפנימית
+      durationMinutes: found.duration_minutes
     };
   }, [services, selectedService]);
 
@@ -126,21 +119,18 @@ export default function Home() {
   };
   const isFormValid = customerName.trim().length > 0 && isValidPhoneNumber(customerPhone);
 
-  // פונקציית עזר לבדיקה האם התור עבר/התחיל (תאריך + שעה)
   const isBookingPast = (bookingDate: string, startTime: string) => {
     const now = new Date();
     const bookingDateTime = new Date(`${bookingDate}T${startTime}`);
     return now >= bookingDateTime;
   };
 
-  const sendConfirmationNotifications = async (booking: any) => {
-    const formattedDate = format(parseDateString(booking.date), 'dd/MM');
+  const sendPendingNotificationToManager = async (booking: any) => {
+    const [year, month, day] = booking.date.split('-').map(Number);
+    const formattedDate = `${day}/${month}`;
     const formattedTime = booking.start_time.slice(0, 5);
-    // שם הטיפול נלקח בצורה דינמית לחלוטין מתוך הרשומה שנשמרה
-    const customerMessage = `שלום ${booking.customer_name}.,\nנקבע לך תור אצל Adar Cosmetics\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nקישור לאינסטגרם:\nhttps://www.instagram.com/adar_abergel_cosmetics?igsh=MWd5aXlyaDV4dHMwZA==`;
-    const managerMessage = `אדר, נקבע תור חדש!\nלקוחה: ${booking.customer_name}\nטיפול: ${booking.service_title}\nזמן: ${formattedDate} בשעה ${formattedTime}\nטלפון: ${booking.customer_phone}`;
+    const managerMessage = `אדר, ממתינה בקשת תור חדשה לאישור שלך!\nלקוחה: ${booking.customer_name}\nטיפול: ${booking.service_title}\nזמן: ${formattedDate} בשעה ${formattedTime}\nטלפון: ${booking.customer_phone}\n\nהכנסי לאפליקציית הניהול לאשר או לדחות.`;
     try {
-      await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: booking.customer_phone, message: customerMessage, isDirectMessage: true })});
       await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '0508917748', message: managerMessage, isDirectMessage: true })});
     } catch (error) { console.error('Notification error:', error); }
   };
@@ -166,7 +156,7 @@ export default function Home() {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const fetchDayData = async () => {
         setLoadingBookings(true);
-        const { data: b } = await supabase.from('bookings').select('*').eq('date', dateStr).neq('status', 'cancelled');
+        const { data: b } = await supabase.from('bookings').select('*').eq('date', dateStr).in('status', ['confirmed', 'pending']);
         const { data: bt } = await supabase.from('blocked_time_slots').select('*').eq('date', dateStr);
         const { data: ds } = await supabase.from('daily_schedules').select('*').eq('date', dateStr).single();
         setBookings(b || []); setBlockedTimeSlots(bt || []); setDailySchedule(ds || null);
@@ -241,7 +231,6 @@ export default function Home() {
         return;
       }
 
-      // הנתונים של השירות נרשמים באופן דינמי לחלוטין מתוך הטבלה
       const newBooking = { 
         service_id: selectedServiceData.id, 
         service_title: selectedServiceData.title, 
@@ -252,7 +241,7 @@ export default function Home() {
         customer_name: customerName.trim(), 
         customer_phone: phoneDigits, 
         cancellation_token: uuidv4(), 
-        status: 'confirmed', 
+        status: 'pending', 
         is_verified: hasActiveSession, 
         verification_code: vCode || undefined 
       };
@@ -262,11 +251,7 @@ export default function Home() {
       
       if (data) {
         if (hasActiveSession) {
-          try {
-            await sendConfirmationNotifications(data);
-          } catch (smsError) {
-            console.error('שגיאה בשליחת ה-SMS אך התור נקבע:', smsError);
-          }
+          await sendPendingNotificationToManager(data);
           setStep('success'); 
         } else { 
           setCurrentBookingId(data.id); 
@@ -291,7 +276,7 @@ export default function Home() {
       if (result.verified) {
         createVerifiedSession(phoneDigits);
         const { data } = await supabase.from('bookings').select('*').eq('id', currentBookingId).single();
-        if (data) await sendConfirmationNotifications(data);
+        if (data) await sendPendingNotificationToManager(data);
         setStep('success');
       } else setVerificationError('קוד אימות שגוי');
     } finally { setVerifying(false); }
@@ -306,7 +291,7 @@ export default function Home() {
       .select('*')
       .eq('customer_phone', phoneDigits)
       .neq('service_id', 'verification')
-      .in('status', ['confirmed'])
+      .in('status', ['confirmed', 'pending']) 
       .order('date', { ascending: false });
 
     if (!existing || existing.length === 0) {
@@ -319,11 +304,7 @@ export default function Home() {
 
     if (!skipVerification && !isPhoneVerified(phoneDigits)) {
       const code = Math.floor(1000 + Math.random() * 9000).toString();
-
-      await supabase.from('bookings')
-        .update({ verification_code: code })
-        .eq('id', existing[0].id);
-        
+      await supabase.from('bookings').update({ verification_code: code }).eq('id', existing[0].id);
       setAppointmentsBookingId(existing[0].id);
 
       await fetch('/api/sms', { 
@@ -344,20 +325,12 @@ export default function Home() {
 
   const handleAppointmentsVerification = async () => {
     const phoneDigits = appointmentsPhone.replace(/\D/g, '');
-    
-    if (!appointmentsBookingId) {
-      setAppointmentsVerificationError('לא נמצא מזהה תור לאימות.');
-      return;
-    }
+    if (!appointmentsBookingId) return;
 
     const res = await fetch('/api/verify', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ 
-        phone: phoneDigits, 
-        code: appointmentsVerificationCode,
-        bookingId: appointmentsBookingId 
-      })
+      body: JSON.stringify({ phone: phoneDigits, code: appointmentsVerificationCode, bookingId: appointmentsBookingId })
     });
     const result = await res.json();
     if (result.verified) {
@@ -382,7 +355,8 @@ export default function Home() {
     if (!confirm('לבטל את התור?')) return;
     const { error = null } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
     if (!error) {
-      const formattedDate = formatDateString(appToCancel.date);
+      const [y, m, d] = appToCancel.date.split('-').map(Number);
+      const formattedDate = `${d}.${m}`;
       const managerCancelMessage = `אדר, לקוחה ביטלה תור:\nשם: ${appToCancel.customer_name}\nזמן: ${formattedDate} בשעה ${appToCancel.start_time}\nטיפול: ${appToCancel.service_title}`;
       try {
         await fetch('/api/sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '0508917748', message: managerCancelMessage, isDirectMessage: true })});
@@ -422,7 +396,6 @@ export default function Home() {
         {step === 'services' && (
           <div className="space-y-6 animate-in fade-in duration-1000">
             <div className="grid grid-cols-1 gap-4">
-              {/* רינדור דינמי מלא מתוך ה-State שמחובר לטבלה ב-Supabase */}
               {services.map((s) => (
                 <div key={s.id} onClick={() => setSelectedService(s.id)} className={`group cursor-pointer p-7 rounded-[2rem] transition-all border shadow-sm ${selectedService === s.id ? 'border-[#c9a961] bg-[#E5E1D8]' : 'border-slate-100 bg-[#FAF9F6] hover:bg-white'}`}>
                   <div className="flex justify-between items-center">
@@ -466,7 +439,7 @@ export default function Home() {
                 <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="שם מלא" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" />
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="מספר טלפון" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" dir="ltr" />
               </div>
-              <button onClick={handleWhatsAppBooking} disabled={!isFormValid || savingBooking} className={`w-full py-5 rounded-full font-bold text-sm tracking-[0.2em] uppercase shadow-2xl transition-all ${isFormValid ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-300'}`}>{savingBooking ? 'מעבד...' : 'אישור וקביעת תור ב-SMS'}</button>
+              <button onClick={handleWhatsAppBooking} disabled={!isFormValid || savingBooking} className={`w-full py-5 rounded-full font-bold text-sm tracking-[0.2em] uppercase shadow-2xl transition-all ${isFormValid ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-300'}`}>{savingBooking ? 'מעבד...' : 'בקשת תור ב-SMS'}</button>
             </div>
           </div>
         )}
@@ -475,19 +448,22 @@ export default function Home() {
           <div className="flex flex-col items-center py-20 space-y-10 animate-in fade-in bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50">
             <div className="w-20 h-20 bg-slate-900 rounded-[2rem] flex items-center justify-center text-white shadow-2xl rotate-6"><Lock size={28} /></div>
             <div className="text-center">
-              <h2 className="text-3xl font-serif italic mb-2">אימות תור</h2>
+              <h2 className="text-3xl font-serif italic mb-2">אימות טלפון</h2>
               <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">הזיני את הקוד שנשלח אלייך</p>
             </div>
             <OTPInput value={verificationCode} onChange={setVerificationCode} error={verificationError} />
-            <button onClick={handleVerification} disabled={verifying || verificationCode.length !== 4} className="w-full max-w-xs py-5 bg-slate-900 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-[10px] active:scale-95 transition-all">אמת תור</button>
+            <button onClick={handleVerification} disabled={verifying || verificationCode.length !== 4} className="w-full max-w-xs py-5 bg-slate-900 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-[10px] active:scale-95 transition-all">שלחי בקשת תור</button>
           </div>
         )}
 
         {step === 'success' && (
           <div className="text-center py-24 px-8 space-y-8 bg-white rounded-[4rem] border border-slate-50 shadow-2xl animate-in zoom-in">
-            <div className="w-20 h-20 bg-[#c9a961] rounded-full flex items-center justify-center mx-auto text-white shadow-2xl"><Check size={36} /></div>
-            <h2 className="text-4xl font-serif italic">נתראה בקרוב!</h2>
-            <p className="text-slate-500 max-w-sm mx-auto leading-relaxed">תודה שקבעת תור! שלחנו לך SMS עם הפרטים.</p>
+            <div className="w-20 h-20 bg-amber-500 rounded-full flex items-center justify-center mx-auto text-white shadow-2xl animate-bounce"><Check size={36} /></div>
+            <h2 className="text-4xl font-serif italic text-slate-900">הבקשה נשלחה!</h2>
+            <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm">
+              התור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
+              ברגע שהתור יאושר בקונסול, תקבלי הודעת SMS למכשירך עם פרטי ההגעה המלאים והמדויקים! ❤️
+            </p>
             <button onClick={() => window.location.reload()} className="px-16 py-5 bg-slate-950 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-xs">סגור</button>
           </div>
         )}
@@ -504,7 +480,7 @@ export default function Home() {
               {appointmentsNeedsVerification ? (
                 <div className="space-y-10 text-center">
                   <div className="space-y-2">
-                    <p className="text-[10px] tracking-[0.2em] text-[#c9a961] uppercase font-bold tracking-[0.4em]">Security Check</p>
+                    <p className="text-[10px] tracking-[0.2em] text-[#c9a961] uppercase font-bold">Security Check</p>
                     <p className="text-sm text-slate-500">נשלח קוד למספר {appointmentsPhone}</p>
                   </div>
                   <OTPInput value={appointmentsVerificationCode} onChange={setAppointmentsVerificationCode} error={appointmentsVerificationError} />
@@ -513,13 +489,11 @@ export default function Home() {
               ) : !appointmentsVerified ? (
                 <div className="space-y-8 text-center">
                   <p className="text-slate-400 text-sm">הזיני מספר טלפון כדי לצפות בתורים שלך</p>
-                  
                   {appointmentsError && (
                     <p className="text-red-500 text-[11px] font-bold uppercase tracking-wider animate-in fade-in bg-red-50/50 border border-red-100 rounded-xl py-2 px-4 max-w-xs mx-auto">
                       {appointmentsError}
                     </p>
                   )}
-
                   <input type="tel" value={appointmentsPhone} onChange={(e) => { setAppointmentsPhone(e.target.value); if(appointmentsError) setAppointmentsError(''); }} placeholder="050-0000000" className="w-full bg-white border border-slate-100 rounded-[2rem] px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-xl font-light shadow-sm" dir="ltr" />
                   <button onClick={() => fetchMyAppointments(appointmentsPhone)} disabled={appointmentsLoading} className="w-full py-5 bg-slate-900 text-white rounded-full font-bold shadow-2xl text-xs tracking-widest uppercase active:scale-95">{appointmentsLoading ? 'שולח קוד...' : 'חפש תורים'}</button>
                 </div>
@@ -530,20 +504,21 @@ export default function Home() {
                       const isPast = isBookingPast(app.date, app.start_time);
                       return (
                         <div key={app.id} className="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm transition-all hover:shadow-md text-right">
-                          <h4 className="font-medium text-slate-800 text-lg mb-1">{app.service_title}</h4>
-                          <p className="text-slate-400 text-xs mb-6">{formatDateString(app.date)} בשעה {app.start_time}</p>
-                          
-                          {isPast ? (
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl">
-                              בוצע
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-medium text-slate-800 text-lg leading-none">{app.service_title}</h4>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
+                              app.status === 'pending' 
+                                ? 'bg-amber-50 text-amber-700 border-amber-200/50 animate-pulse' 
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
+                            }`}>
+                              {app.status === 'pending' ? 'ממתין לאישור של אדר' : 'מאושר - נתראה! ❤️'}
                             </span>
+                          </div>
+                          <p className="text-slate-400 text-xs mb-6">{formatDateString(app.date)} בשעה {app.start_time}</p>
+                          {isPast ? (
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-xl">בוצע</span>
                           ) : (
-                            <button 
-                              onClick={() => handleCancelAppointment(app.id!)} 
-                              className="text-red-400 font-bold text-[9px] uppercase tracking-[0.2em] hover:text-red-600 transition-colors underline underline-offset-8"
-                            >
-                              ביטול תור
-                            </button>
+                            <button onClick={() => handleCancelAppointment(app.id!)} className="text-red-400 font-bold text-[9px] uppercase tracking-[0.2em] hover:text-red-600 transition-colors underline underline-offset-8">ביטול תור</button>
                           )}
                         </div>
                       );
