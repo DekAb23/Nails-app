@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
 import { SiWaze } from 'react-icons/si';
-import { Instagram, Phone, Calendar, Check, X, Lock, Sparkles, ChevronLeft, RotateCcw, History } from 'lucide-react';
+import { Instagram, Phone, Calendar, Check, X, Lock, Sparkles, ChevronLeft, RotateCcw, History, Shield, Eye } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import { format } from 'date-fns';
@@ -77,7 +77,7 @@ export default function Home() {
   const [showMyAppointments, setShowMyAppointments] = useState(false);
   const [appointmentsPhone, setAppointmentsPhone] = useState<string>('');
   const [myAppointments, setMyAppointments] = useState<Booking[]>([]);
-  const [showHistory, setShowHistory] = useState(false); // סטייט חדש למעבר בין תורים עתידיים להיסטוריה
+  const [showHistory, setShowHistory] = useState(false); 
   const [appointmentsVerified, setAppointmentsVerified] = useState(false);
   const [appointmentsVerificationCode, setAppointmentsVerificationCode] = useState<string>('');
   const [appointmentsVerificationError, setAppointmentsVerificationError] = useState<string>('');
@@ -86,6 +86,9 @@ export default function Home() {
   const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); 
   const [appointmentsError, setAppointmentsError] = useState<string>(''); 
   
+  const [showAccessibilityModal, setShowAccessibilityModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
@@ -126,7 +129,6 @@ export default function Home() {
     return now >= bookingDateTime;
   };
 
-  // פיצול ומיול התורים של הלקוחה בזמן אמת לעתידיים מול היסטוריה
   const splitAppointments = useMemo(() => {
     const future: Booking[] = [];
     const past: Booking[] = [];
@@ -323,7 +325,6 @@ export default function Home() {
     setAppointmentsLoading(true);
     setAppointmentsError('');
 
-    // שולפים את כל ההיסטוריה והתורים (confirmed ו-pending) ללא הגבלת זמן בשאילתה, כדי שה-useMemo יבצע את החלוקה הדינמית
     const { data: existing } = await supabase.from('bookings')
       .select('*')
       .eq('customer_phone', phoneDigits)
@@ -513,7 +514,6 @@ export default function Home() {
               <button onClick={() => setShowMyAppointments(false)} className="bg-slate-50 p-2.5 rounded-full text-slate-400"><X size={20} /></button>
             </div>
             
-            {/* ניווט פנימי אלגנטי ויוקרתי למעבר בין תורים עתידיים להיסטוריה */}
             {appointmentsVerified && !appointmentsNeedsVerification && (
               <div className="bg-white px-10 py-3 flex gap-3 border-b border-slate-100">
                 <button onClick={() => setShowHistory(false)} className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${!showHistory ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-50 text-slate-400'}`}>תורים קרובים</button>
@@ -545,7 +545,6 @@ export default function Home() {
               ) : (
                 <div className="space-y-6">
                   {!showHistory ? (
-                    // --- תצוגת תורים עתידיים ---
                     splitAppointments.future.length === 0 ? (
                       <div className="text-center py-10 flex flex-col items-center justify-center gap-3 opacity-30">
                         <Calendar size={32} className="text-slate-400" />
@@ -570,7 +569,6 @@ export default function Home() {
                       ))
                     )
                   ) : (
-                    // --- תצוגת היסטוריית טיפולים קודמים ---
                     splitAppointments.past.length === 0 ? (
                       <div className="text-center py-10 flex flex-col items-center justify-center gap-3 opacity-30">
                         <History size={32} className="text-slate-400" />
@@ -597,7 +595,71 @@ export default function Home() {
         </div>
       )}
 
-      <footer className="w-full py-16 text-center opacity-30 text-[9px] font-bold tracking-[0.8em] uppercase hover:text-[#c9a961]">© 2026 Adar Cosmetics</footer>
+      {/* --- מודאל הצהרת נגישות --- */}
+      {showAccessibilityModal && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowAccessibilityModal(false)}>
+          <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 text-right" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-50 px-8 py-6 flex items-center justify-between border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-800 font-serif italic text-lg"><Shield size={16} className="text-[#c9a961]" /> הצהרת נגישות - אדר קוסמטיקס</div>
+              <button onClick={() => setShowAccessibilityModal(false)} className="bg-white p-2 rounded-full text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 font-sans text-sm text-slate-600 space-y-4 leading-relaxed">
+              <p className="font-bold text-slate-900">מבוא</p>
+              <p>אנו באדר קוסמטיקס רואים חשיבות עליונה במתן שירות שוויוני, מכבד ונגיש לכלל הלקוחות, לרבות אנשים עם מוגבלות. אתר זה נבנה מתוך שאיפה לאפשר גלישה נוחה ככל הניתן.</p>
+              <p className="font-bold text-slate-900">פטור מהנגשת האתר</p>
+              <p>בהתאם לתקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), התש"ג-2013, עסק זה פטור מחובת ביצוע התאמות נגישות דיגיטליות באתר בשל מחזור פעילות שאינו עולה על התקרה הקבועה בחוק.</p>
+              <p className="font-bold text-slate-900">הסדרי נגישות פיזיים בקליניקה</p>
+              <p>הקליניקה ממוקמת בכתובת: מור 5 א', קומה 6 דירה 25, אור עקיבא. להלן הסדרי הנגישות במקום:</p>
+              <ul className="list-disc list-inside pr-2 space-y-1">
+                <li>קיימת מעלית נגישה בבניין המובילה לקומה 6.</li>
+                <li>פתחי הדלתות ומעברי הדירה רחבים ומאפשרים תנועה.</li>
+                <li>מותרת כניסה לקליניקה WITH חיית שירות (כגון כלב נחייה).</li>
+                <li>במידה ונדרש סיוע נוסף בכניסה או במהלך הטיפול, אנו נשמח לעזור מכל הלב.</li>
+              </ul>
+              <p className="font-bold text-slate-900">רכז נגישות ופניות</p>
+              <p>לכל שאלה, בקשה להסבר או תיאום הסדר מיוחד, ניתן לפנות ישירות לאדר אברג'ל (רכזת הנגישות ובעלת העסק) בטלפון: <a href="tel:0508917748" className="text-[#b8964f] underline font-bold">050-8917748</a>.</p>
+              <p className="text-[10px] text-slate-400 pt-4">עדכון אחרון: יוני 2026</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- מודאל מדיניות פרטיות ותנאי שימוש --- */}
+      {showPrivacyModal && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowPrivacyModal(false)}>
+          <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 text-right" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-slate-50 px-8 py-6 flex items-center justify-between border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-800 font-serif italic text-lg"><Eye size={16} className="text-[#c9a961]" /> מדיניות פרטיות ותנאי שימוש</div>
+              <button onClick={() => setShowPrivacyModal(false)} className="bg-white p-2 rounded-full text-slate-400"><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8 font-sans text-sm text-slate-600 space-y-4 leading-relaxed">
+              <p className="font-bold text-slate-900">1. כללי</p>
+              <p>ברוכים הבאים לאתר זימון התורים של אדר קוסמטיקס. השימוש באתר והזנת פרטים בו מהווים הסכמה מרצון לתנאים המפורטים להלן.</p>
+              <p className="font-bold text-slate-900">2. איסוף מידע ופרטיות</p>
+              <p>בעת שימוש באתר לצורך הזמנת תור, המערכת אוספת מידע אישי בסיסי הכולל: שם מלא, מספר טלפון נייד, וסוג הטיפול המבוקש. מידע זה נחוץ לנו באופן בלעדי למטרות הבאות:</p>
+              <ul className="list-disc list-inside pr-2 space-y-1">
+                <li>אימות זהות הלקוחה באמצעות שליחת קוד חד-פעמי (OTP) ב-SMS.</li>
+                <li>תיאום, עדכון, אישור או ביטול התור מול יומן הניהול של הקליניקה.</li>
+                <li>שליחת תזכורות אוטומטיות לפני מועד הטיפול.</li>
+              </ul>
+              <p className="font-bold text-slate-900">3. סודיות והעברת מידע לצד ג'</p>
+              <p>אנו מתחייבים לשמור על סודיות המידע שלך. המידע נשמר בבסיס נתונים מאובטח בטכנולוגיית Supabase ומשמש אך ורק את אדר קוסמטיקס. בשום מקרה המידע לא יימכר, יימסר או ישותף עם חברות מסחריות או צדדים שלישיים לצרכי פרסום.</p>
+              <p className="font-bold text-slate-900">4. מדיניות ביטולים ושינוי תורים</p>
+              <p>לתשומת לבך, תהליך זימון התור מהווה שרייון זמן עבודה ייעודי עבורך. שינוי או ביטול תור יתבצע לפחות 24 שעות לפני מועד הטיפול. ביטול בפחות מ-24 שעות או אי הגעה ללא הודעה מראש, עלול להיות מותנה בחיוב של כ-50% מעלות הטיפול המתוכנן.</p>
+              <p className="text-[10px] text-slate-400 pt-4">עדכון אחרון: יוני 2026</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* בר ניווט תחתון אולטרה-אלגנטי: שורה אחת מאוזנת ומקצועית */}
+      <footer className="w-full py-12 text-center text-[10px] font-bold tracking-[0.1em] text-slate-400 flex items-center justify-center gap-3 md:gap-4 relative z-30 font-sans select-none">
+        <button onClick={() => setShowAccessibilityModal(true)} className="hover:text-[#c9a961] active:text-[#c9a961] transition-colors cursor-pointer text-slate-400/80">הצהרת נגישות</button>
+        <span className="text-slate-200/50">•</span>
+        <span className="text-[9px] tracking-[0.4em] uppercase text-slate-300 font-light">© 2026 Adar Cosmetics</span>
+        <span className="text-slate-200/50">•</span>
+        <button onClick={() => setShowPrivacyModal(true)} className="hover:text-[#c9a961] active:text-[#c9a961] transition-colors cursor-pointer text-slate-400/80">מדיניות פרטיות</button>
+      </footer>
     </div>
   );
 }
