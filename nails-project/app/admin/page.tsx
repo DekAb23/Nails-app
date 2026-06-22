@@ -229,7 +229,7 @@ export default function AdminPage() {
       const formattedDate = `${day}/${month}`;
       const formattedTime = booking.start_time.slice(0, 5);
       
-      const customerMessage = `היי ${booking.customer_name},\nהתור שלך אושר בהצלחה! 🎉\n\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב- אי הגעה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nנתראה! ❤️`;
+      const customerMessage = `היי ${booking.customer_name},\nהתור שלך אושר בהצלחה! 🎉\n\n${booking.service_title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב -\nהשלמה/תיקון בתוספת 10 ש"ח לציפורן.\nאי געה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nנתראה! ❤️`;
       
       try {
         await fetch('/api/sms', { 
