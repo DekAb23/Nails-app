@@ -92,13 +92,13 @@ export default function AdminPage() {
   const [isQuickCalendarOpen, setIsQuickCalendarOpen] = useState(false);
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
- 
+  
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [dailySchedules, setDailySchedules] = useState<DailySchedule[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
- 
+  
   // States לניהול השירותים
   const [dbServices, setDbServices] = useState<any[]>([]);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
@@ -120,6 +120,19 @@ export default function AdminPage() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
+  // עדכון דינמי של שדות השעה בעת מעבר ימים כדי לשקף את הקיים במסד הנתונים
+  useEffect(() => {
+    const dStr = toLocalDateString(selectedDate);
+    const existingSchedule = dailySchedules.find(ds => ds.date === dStr);
+    if (existingSchedule) {
+      setCustomHoursStartTime(existingSchedule.start_time.slice(0, 5));
+      setCustomHoursEndTime(existingSchedule.end_time.slice(0, 5));
+    } else {
+      setCustomHoursStartTime('09:00');
+      setCustomHoursEndTime('16:00');
+    }
+  }, [selectedDate, dailySchedules]);
+
   const formatHeDate = (dateStr: string) => {
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
@@ -132,7 +145,7 @@ export default function AdminPage() {
     const { data: bts } = await supabase.from('blocked_time_slots').select('*').order('date');
     const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20);
     const { data: s } = await supabase.from('services').select('*').order('created_at', { ascending: true });
-   
+    
     setBookings(b || []); setBlockedDates(bd || []); setDailySchedules(ds || []); setBlockedTimeSlots(bts || []); setActivities(al || []);
     setDbServices(s || []);
   };
@@ -152,14 +165,14 @@ export default function AdminPage() {
           services: {}
         };
       }
-     
+      
       customerMap[b.customer_phone].dates.push(b.date);
       customerMap[b.customer_phone].services[b.service_title] = (customerMap[b.customer_phone].services[b.service_title] || 0) + 1;
     });
 
     const allCalculated = Object.entries(customerMap).map(([phone, data]) => {
       const sortedDates = [...data.dates].sort((a, b) => a.localeCompare(b));
-     
+      
       let favoriteService = 'לא מוגדר';
       let maxCount = 0;
       Object.entries(data.services).forEach(([service, count]) => {
@@ -194,7 +207,7 @@ export default function AdminPage() {
 
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) return loyalCustomers;
-   
+    
     const cleanSearch = searchTerm.toLowerCase().trim();
     return loyalCustomers.filter(c =>
       c.name.toLowerCase().includes(cleanSearch) ||
@@ -362,7 +375,7 @@ export default function AdminPage() {
   const currentDaySchedule = useMemo(() => dailySchedules.find(ds => ds.date === toLocalDateString(selectedDate)), [dailySchedules, selectedDate]);
   const currentDayBreaks = useMemo(() => blockedTimeSlots.filter(bts => bts.date === toLocalDateString(selectedDate)), [blockedTimeSlots, selectedDate]);
   const isFullBlocked = useMemo(() => blockedDates.some(bd => bd.date === toLocalDateString(selectedDate)), [blockedDates, selectedDate]);
- 
+  
   const futureBlockedList = useMemo(() => blockedDates.filter(bd => bd.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedDates, todayStr]);
   const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
   const futureBreaksList = useMemo(() => blockedTimeSlots.filter(bts => bts.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedTimeSlots, todayStr]);
@@ -372,14 +385,17 @@ export default function AdminPage() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#FDFBF6] text-slate-800 font-sans text-right pb-24 selection:bg-[#c9a961]/10">
-     
+      
+      {/* עיצוב לוח שנה מקצועי, נקי וללא עיוותי גדלים או היעלמויות טקסט */}
       <style jsx global>{`
         .rdp { --rdp-accent-color: #c9a961; width: 100%; margin: 0; display: flex; justify-content: center; }
-        .rdp-day { border-radius: 12px; height: 44px; width: 44px; font-weight: 500; font-size: 0.95rem; transition: all 0.2s; position: relative; }
+        .rdp-day { border-radius: 12px; font-weight: 500; transition: all 0.2s; position: relative; }
         .rdp-day_selected { background: #c9a961 !important; color: #fff !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(201,169,97,0.3); }
-        .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; background: #c9a961; border-radius: 50%; }
-        .rdp-day_blocked { background: #fee2e2 !important; color: #b91c1c !important; border: 1px solid #fecaca !important; }
-        .rdp-day_partial { background: #fefce8 !important; color: #a16207 !important; border: 1px solid #fef08a !important; }
+        
+        /* נקודות סימון אסתטיות בתחתית המשבצת למניעת בריחה ומריחה של רקעים */
+        .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background: #c9a961; border-radius: 50%; }
+        .rdp-day_blocked { background: #fee2e2 !important; color: #b91c1c !important; }
+        .rdp-day_partial { background: #fefce8 !important; color: #a16207 !important; }
         .rdp-day_past { color: #cbd5e1 !important; pointer-events: auto; }
       `}</style>
 
@@ -407,7 +423,7 @@ export default function AdminPage() {
             <button onClick={() => supabase.auth.signOut()} className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-300 hover:text-red-500 transition-colors"><LogOut size={16} /></button>
           </div>
         </div>
-       
+        
         <div className="max-w-2xl mx-auto grid grid-cols-3 gap-3">
           {activeTab === 'customers' ? (
             <>
@@ -474,7 +490,7 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-       
+        
         {activeTab === 'daily' && (
           <div className="space-y-5 animate-in fade-in duration-500">
             <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl p-4 rounded-3xl border border-white/40 shadow-sm">
@@ -603,7 +619,25 @@ export default function AdminPage() {
                   <input type="time" value={customHoursStartTime} onChange={e => setCustomHoursStartTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
                   <input type="time" value={customHoursEndTime} onChange={e => setCustomHoursEndTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
                 </div>
-                <button onClick={async () => { await supabase.from('daily_schedules').upsert({ date: toLocalDateString(selectedDate), start_time: customHoursStartTime, end_time: customHoursEndTime }); fetchData(); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">עדכון מסגרת עבודה</button>
+                <button onClick={async () => { 
+                  await supabase.from('daily_schedules').upsert({ date: toLocalDateString(selectedDate), start_time: customHoursStartTime, end_time: customHoursEndTime }); 
+                  fetchData(); 
+                  alert('מסגרת העבודה עודכנה בהצלחה! 🎉');
+                }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">עדכון מסגרת עבודה</button>
+                
+                {/* לחצן דינמי למחיקה וחזרה לברירת מחדל */}
+                {dailySchedules.some(ds => ds.date === toLocalDateString(selectedDate)) && (
+                  <button 
+                    onClick={async () => { 
+                      await supabase.from('daily_schedules').delete().eq('date', toLocalDateString(selectedDate)); 
+                      fetchData(); 
+                      alert('היום הוחזר לשעות ברירת המחדל (09:00-16:00) בהצלחה! ✨');
+                    }} 
+                    className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition-all mt-1"
+                  >
+                    חזרה לשעות ברירת מחדל (09:00-16:00)
+                  </button>
+                )}
               </div>
             </div>
 
@@ -611,7 +645,7 @@ export default function AdminPage() {
               <div className="flex items-center gap-3 mb-5"><AlertTriangle size={16} className="text-slate-700" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-700">פירוט חסימות והפסקות</h2></div>
               <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                 {[...futureBlockedList, ...futureSchedulesList, ...futureBreaksList].length === 0 ? <p className="text-xs text-slate-300 text-center py-6">אין חסימות או הפסקות עתידיות</p> : null}
-               
+                
                 {futureBlockedList.map(bd => (
                   <div key={bd.date} className="flex justify-between items-center p-4 bg-red-50/50 rounded-xl border border-red-100/50">
                     <span className="text-xs font-bold text-red-800">{formatHeDate(bd.date)} <span className="text-[9px] ml-2 opacity-50 uppercase">יום סגור מלא</span></span>
@@ -670,7 +704,7 @@ export default function AdminPage() {
                 ) : (
                   filteredCustomers.map(customer => {
                     const isExpanded = expandedCustomer === customer.phone;
-                   
+                    
                     const customerHistory = bookings
                       .filter(b => b.customer_phone === customer.phone)
                       .sort((a, b) => b.date.localeCompare(a.date) || b.start_time.localeCompare(a.start_time));
@@ -720,7 +754,7 @@ export default function AdminPage() {
                                 <History size={13} className="text-slate-400" />
                                 <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-500">תקציר תורים קודמים ({customerHistory.length})</h5>
                               </div>
-                             
+                              
                               <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
                                 {customerHistory.map((historyItem) => (
                                   <div key={historyItem.id} className="flex justify-between items-center bg-[#FDFBF6]/60 p-2 rounded-lg border border-slate-100/50 text-right">
