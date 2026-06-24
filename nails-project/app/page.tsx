@@ -93,6 +93,9 @@ export default function Home() {
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
   const [services, setServices] = useState<any[]>([]);
+  
+  // תאריך הגבלת יומן מקסימלי שיימשך דינמית
+  const [dbMaxCalendarDate, setDbMaxCalendarDate] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -161,6 +164,12 @@ export default function Home() {
   const fetchData = async () => {
     const { data: bd } = await supabase.from('blocked_dates').select('*');
     setBlockedDates(bd || []);
+
+    // שליפת הגדרת תאריך הסגירה הכללי של המנהלת
+    const { data: ds } = await supabase.from('daily_schedules').select('*').eq('date', '9999-12-31').maybeSingle();
+    if (ds && ds.start_time) {
+      setDbMaxCalendarDate(ds.start_time);
+    }
   };
 
   useEffect(() => {
@@ -197,10 +206,20 @@ export default function Home() {
 
   const disabledDates = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const maxDate = new Date(); maxDate.setMonth(maxDate.getMonth() + 2);
+    
+    // קביעת התאריך המקסימלי: מהדאטה-בייס או כברירת מחדל חודשיים קדימה
+    let maxDate = new Date();
+    if (dbMaxCalendarDate) {
+      const [y, m, d] = dbMaxCalendarDate.split('-').map(Number);
+      maxDate = new Date(y, m - 1, d);
+      maxDate.setHours(23, 59, 59, 999);
+    } else {
+      maxDate.setMonth(maxDate.getMonth() + 2);
+    }
+
     const blockedDateObjects = blockedDates.map(bd => parseDateString(bd.date));
     return [{ before: today }, { after: maxDate }, { dayOfWeek: [6] }, ...blockedDateObjects];
-  }, [blockedDates]);
+  }, [blockedDates, dbMaxCalendarDate]);
 
   const availableSlots = useMemo(() => {
     if (!selectedServiceData || !selectedDate) return [];
@@ -429,7 +448,7 @@ export default function Home() {
         </div>
       </div>
       
-      <main className="w-full max-w-2xl mx-auto px-6 pt-10 relative z-20 pb-20">
+      <main className="max-w-2xl mx-auto px-4 mt-6">
         {step === 'services' && (
           <div className="space-y-6 animate-in fade-in duration-1000">
             <div className="grid grid-cols-1 gap-4">
@@ -498,7 +517,7 @@ export default function Home() {
             <div className="w-20 h-20 bg-amber-500 rounded-full flex items-center justify-center mx-auto text-white shadow-2xl animate-bounce"><Check size={36} /></div>
             <h2 className="text-4xl font-serif italic text-slate-900">הבקשה נשלחה!</h2>
             <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm">
-              התור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
+              التור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
               ברגע שהתור יאושר , תקבלי הודעת SMS למכשירך עם פרטי התור המלאים ! ❤️
             </p>
             <button onClick={() => window.location.reload()} className="px-16 py-5 bg-slate-950 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-xs">סגור</button>
@@ -595,64 +614,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* --- מודאל הצהרת נגישות --- */}
-      {showAccessibilityModal && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowAccessibilityModal(false)}>
-          <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 text-right" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-slate-50 px-8 py-6 flex items-center justify-between border-b border-slate-100">
-              <div className="flex items-center gap-2 text-slate-800 font-serif italic text-lg"><Shield size={16} className="text-[#c9a961]" /> הצהרת נגישות - אדר קוסמטיקס</div>
-              <button onClick={() => setShowAccessibilityModal(false)} className="bg-white p-2 rounded-full text-slate-400"><X size={16} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-8 font-sans text-sm text-slate-600 space-y-4 leading-relaxed">
-              <p className="font-bold text-slate-900">מבוא</p>
-              <p>אנו באדר קוסמטיקס רואים חשיבות עליונה במתן שירות שוויוני, מכבד ונגיש לכלל הלקוחות, לרבות אנשים עם מוגבלות. אתר זה נבנה מתוך שאיפה לאפשר גלישה נוחה ככל הניתן.</p>
-              <p className="font-bold text-slate-900">פטור מהנגשת האתר</p>
-              <p>בהתאם לתקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), התש"ג-2013, עסק זה פטור מחובת ביצוע התאמות נגישות דיגיטליות באתר בשל מחזור פעילות שאינו עולה על התקרה הקבועה בחוק.</p>
-              <p className="font-bold text-slate-900">הסדרי נגישות פיזיים בקליניקה</p>
-              <p>הקליניקה ממוקמת בכתובת: מור 5 א', קומה 6 דירה 25, אור עקיבא. להלן הסדרי הנגישות במקום:</p>
-              <ul className="list-disc list-inside pr-2 space-y-1">
-                <li>קיימת מעלית נגישה בבניין המובילה לקומה 6.</li>
-                <li>פתחי הדלתות ומעברי הדירה רחבים ומאפשרים תנועה.</li>
-                <li>מותרת כניסה לקליניקה WITH חיית שירות (כגון כלב נחייה).</li>
-                <li>במידה ונדרש סיוע נוסף בכניסה או במהלך הטיפול, אנו נשמח לעזור מכל הלב.</li>
-              </ul>
-              <p className="font-bold text-slate-900">רכז נגישות ופניות</p>
-              <p>לכל שאלה, בקשה להסבר או תיאום הסדר מיוחד, ניתן לפנות ישירות לאדר אברג'ל (רכזת הנגישות ובעלת העסק) בטלפון: <a href="tel:0508917748" className="text-[#b8964f] underline font-bold">050-8917748</a>.</p>
-              <p className="text-[10px] text-slate-400 pt-4">עדכון אחרון: יוני 2026</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- מודאל מדיניות פרטיות ותנאי שימוש --- */}
-      {showPrivacyModal && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[250] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowPrivacyModal(false)}>
-          <div className="bg-white rounded-[3rem] shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 text-right" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-slate-50 px-8 py-6 flex items-center justify-between border-b border-slate-100">
-              <div className="flex items-center gap-2 text-slate-800 font-serif italic text-lg"><Eye size={16} className="text-[#c9a961]" /> מדיניות פרטיות ותנאי שימוש</div>
-              <button onClick={() => setShowPrivacyModal(false)} className="bg-white p-2 rounded-full text-slate-400"><X size={16} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-8 font-sans text-sm text-slate-600 space-y-4 leading-relaxed">
-              <p className="font-bold text-slate-900">1. כללי</p>
-              <p>ברוכים הבאים לאתר זימון התורים של אדר קוסמטיקס. השימוש באתר והזנת פרטים בו מהווים הסכמה מרצון לתנאים המפורטים להלן.</p>
-              <p className="font-bold text-slate-900">2. איסוף מידע ופרטיות</p>
-              <p>בעת שימוש באתר לצורך הזמנת תור, המערכת אוספת מידע אישי בסיסי הכולל: שם מלא, מספר טלפון נייד, וסוג הטיפול המבוקש. מידע זה נחוץ לנו באופן בלעדי למטרות הבאות:</p>
-              <ul className="list-disc list-inside pr-2 space-y-1">
-                <li>אימות זהות הלקוחה באמצעות שליחת קוד חד-פעמי (OTP) ב-SMS.</li>
-                <li>תיאום, עדכון, אישור או ביטול התור מול יומן הניהול של הקליניקה.</li>
-                <li>שליחת תזכורות אוטומטיות לפני מועד הטיפול.</li>
-              </ul>
-              <p className="font-bold text-slate-900">3. סודיות והעברת מידע לצד ג'</p>
-              <p>אנו מתחייבים לשמור על סודיות המידע שלך. המידע נשמר בבסיס נתונים מאובטח בטכנולוגיית Supabase ומשמש אך ורק את אדר קוסמטיקס. בשום מקרה המידע לא יימכר, יימסר או ישותף עם חברות מסחריות או צדדים שלישיים לצרכי פרסום.</p>
-              <p className="font-bold text-slate-900">4. מדיניות ביטולים ושינוי תורים</p>
-              <p>לתשומת לבך, תהליך זימון התור מהווה שרייון זמן עבודה ייעודי עבורך. שינוי או ביטול תור יתבצע לפחות 24 שעות לפני מועד הטיפול. ביטול בפחות מ-24 שעות או אי הגעה ללא הודעה מראש, עלול להיות מותנה בחיוב של כ-50% מעלות הטיפול המתוכנן.</p>
-              <p className="text-[10px] text-slate-400 pt-4">עדכון אחרון: יוני 2026</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* בר ניווט תחתון אולטרה-אלגנטי: שורה אחת מאוזנת ומקצועית */}
       <footer className="w-full py-12 text-center text-[10px] font-bold tracking-[0.1em] text-slate-400 flex items-center justify-center gap-3 md:gap-4 relative z-30 font-sans select-none">
         <button onClick={() => setShowAccessibilityModal(true)} className="hover:text-[#c9a961] active:text-[#c9a961] transition-colors cursor-pointer text-slate-400/80">הצהרת נגישות</button>
         <span className="text-slate-200/50">•</span>

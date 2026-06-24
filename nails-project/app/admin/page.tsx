@@ -6,13 +6,12 @@ import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import {
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone,
-  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus, Bell, CheckCircle2
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus, Bell, CheckCircle2, Eye
 } from 'lucide-react';
 import { supabase, Booking, BlockedDate, DailySchedule, ActivityLog } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
-import { v4 as uuidv4 } from 'uuid'; // וידוא שימוש ב-uuid ליצירת מזהים אוטומטיים
+import { v4 as uuidv4 } from 'uuid';
 
-// --- Type definitions ---
 type BlockedTimeSlot = {
   id?: string;
   date: string;
@@ -29,7 +28,6 @@ type CustomerStats = {
   favoriteService: string;
 };
 
-// --- פונקציות עזר ---
 const timeToMinutes = (time: string) => {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
@@ -99,7 +97,6 @@ export default function AdminPage() {
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   
-  // States לניהול השירותים
   const [dbServices, setDbServices] = useState<any[]>([]);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<any | null>(null);
@@ -110,6 +107,10 @@ export default function AdminPage() {
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('16:00');
   const [breakStartTime, setBreakStartTime] = useState<string>('14:00');
   const [breakEndTime, setBreakEndTime] = useState<string>('16:00');
+  
+  // הגדרת תאריך מקסימלי לפתיחת יומן
+  const [maxCalendarOpenDate, setMaxCalendarOpenDate] = useState<string>('');
+  const [savingMaxDate, setSavingMaxDate] = useState(false);
 
   const todayStr = useMemo(() => {
     const d = new Date();
@@ -120,7 +121,6 @@ export default function AdminPage() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
-  // עדכון דינמי של שדות השעה בעת מעבר ימים כדי לשקף את הקיים במסד הנתונים
   useEffect(() => {
     const dStr = toLocalDateString(selectedDate);
     const existingSchedule = dailySchedules.find(ds => ds.date === dStr);
@@ -134,6 +134,7 @@ export default function AdminPage() {
   }, [selectedDate, dailySchedules]);
 
   const formatHeDate = (dateStr: string) => {
+    if (dateStr === '9999-12-31') return 'הגדרת יומן';
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
   };
@@ -146,11 +147,44 @@ export default function AdminPage() {
     const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20);
     const { data: s } = await supabase.from('services').select('*').order('created_at', { ascending: true });
     
-    setBookings(b || []); setBlockedDates(bd || []); setDailySchedules(ds || []); setBlockedTimeSlots(bts || []); setActivities(al || []);
+    setBookings(b || []); 
+    setBlockedDates(bd || []); 
+    setDailySchedules(ds || []); 
+    setBlockedTimeSlots(bts || []); 
+    setActivities(al || []);
     setDbServices(s || []);
+
+    // שליפת הגדרת תאריך פתיחת יומן מקסימלי מתוך הרשומה הפיקטיבית
+    const maxDateSetting = ds?.find(item => item.date === '9999-12-31');
+    if (maxDateSetting) {
+      setMaxCalendarOpenDate(maxDateSetting.start_time);
+    } else {
+      // אם לא קיים, נחשב ברירת מחדל של חודשיים מהיום
+      const defaultMax = new Date();
+      defaultMax.setMonth(defaultMax.getMonth() + 2);
+      setMaxCalendarOpenDate(toLocalDateString(defaultMax));
+    }
   };
 
-  // מנוע חישוב וסינון לקוחות מתוך הדאטה (עם ניקוי שורות אימות)
+  const handleUpdateMaxCalendarDate = async () => {
+    if (!maxCalendarOpenDate) return;
+    setSavingMaxDate(true);
+    try {
+      const { error } = await supabase.from('daily_schedules').upsert({
+        date: '9999-12-31',
+        start_time: maxCalendarOpenDate,
+        end_time: '00:00'
+      });
+      if (error) throw error;
+      alert('טווח פתיחת היומן ללקוחות עודכן בהצלחה! 🎉');
+      fetchData();
+    } catch (e) {
+      alert('שגיאה בעדכון טווח היומן.');
+    } finally {
+      setSavingMaxDate(false);
+    }
+  };
+
   const customerBaseStats = useMemo(() => {
     const adminPhone = '0508917748';
     const customerMap: Record<string, { name: string; dates: string[]; services: Record<string, number> }> = {};
@@ -215,7 +249,6 @@ export default function AdminPage() {
     );
   }, [loyalCustomers, searchTerm]);
 
-  // סינון בקשות ממתינות לאישור אדר
   const pendingApprovals = useMemo(() => {
     return bookings.filter(b => b.status === 'pending').sort((a,b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time));
   }, [bookings]);
@@ -351,7 +384,7 @@ export default function AdminPage() {
   }), [blockedDates]);
 
   const partialDateObjects = useMemo(() => {
-    const daysWithSchedules = dailySchedules.filter(ds => ds.start_time !== '09:00' || ds.end_time !== '16:00').map(ds => ds.date);
+    const daysWithSchedules = dailySchedules.filter(ds => ds.date !== '9999-12-31' && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).map(ds => ds.date);
     const daysWithBreaks = blockedTimeSlots.map(bts => bts.date);
     const uniqueDays = Array.from(new Set([...daysWithSchedules, ...daysWithBreaks]));
     return uniqueDays.map(dateStr => {
@@ -377,7 +410,7 @@ export default function AdminPage() {
   const isFullBlocked = useMemo(() => blockedDates.some(bd => bd.date === toLocalDateString(selectedDate)), [blockedDates, selectedDate]);
   
   const futureBlockedList = useMemo(() => blockedDates.filter(bd => bd.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedDates, todayStr]);
-  const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
+  const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date !== '9999-12-31' && ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
   const futureBreaksList = useMemo(() => blockedTimeSlots.filter(bts => bts.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedTimeSlots, todayStr]);
 
   if (checkingAuth) return null;
@@ -386,13 +419,10 @@ export default function AdminPage() {
   return (
     <div dir="rtl" className="min-h-screen bg-[#FDFBF6] text-slate-800 font-sans text-right pb-24 selection:bg-[#c9a961]/10">
       
-      {/* עיצוב לוח שנה מקצועי, נקי וללא עיוותי גדלים או היעלמויות טקסט */}
       <style jsx global>{`
         .rdp { --rdp-accent-color: #c9a961; width: 100%; margin: 0; display: flex; justify-content: center; }
         .rdp-day { border-radius: 12px; font-weight: 500; transition: all 0.2s; position: relative; }
         .rdp-day_selected { background: #c9a961 !important; color: #fff !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(201,169,97,0.3); }
-        
-        /* נקודות סימון אסתטיות בתחתית המשבצת למניעת בריחה ומריחה של רקעים */
         .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background: #c9a961; border-radius: 50%; }
         .rdp-day_blocked { background: #fee2e2 !important; color: #b91c1c !important; }
         .rdp-day_partial { background: #fefce8 !important; color: #a16207 !important; }
@@ -449,7 +479,6 @@ export default function AdminPage() {
 
       <main className="max-w-2xl mx-auto px-4 mt-6">
         
-        {/* --- לשונית בקשות תורים לאישור --- */}
         {activeTab === 'approvals' && (
           <div className="space-y-5 animate-in fade-in duration-500">
             <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
@@ -584,6 +613,28 @@ export default function AdminPage() {
 
         {activeTab === 'calendar' && (
           <div className="space-y-5 animate-in fade-in duration-500">
+            {/* רכיב בחירת תאריך סגירה כללי - הכי מקצועי */}
+            <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
+              <div className="flex items-center gap-2.5 mb-5 text-right"><Eye size={15} className="text-[#c9a961]" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">טווח פתיחת יומן ללקוחות</h2></div>
+              <p className="text-[9px] text-slate-400 mb-4 leading-tight">הגדירי עד איזה תאריך היומן יהיה פתוח לקביעת תורים. כל תאריך מעבר ליום שנבחר ייחסם אוטומטית ללקוחות.</p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input 
+                  type="date" 
+                  min={todayStr}
+                  value={maxCalendarOpenDate} 
+                  onChange={e => setMaxCalendarOpenDate(e.target.value)} 
+                  className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold tabular-nums" 
+                />
+                <button 
+                  onClick={handleUpdateMaxCalendarDate} 
+                  disabled={savingMaxDate}
+                  className="py-4 px-6 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all"
+                >
+                  {savingMaxDate ? 'מעדכן...' : 'עדכון תאריך סגירה'}
+                </button>
+              </div>
+            </div>
+
             <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-center">
               <div className="flex items-center justify-center gap-2.5 mb-5"><CalendarIcon size={16} className="text-[#c9a961]"/><h2 className="text-xs font-bold uppercase tracking-widest">ניהול יומן</h2></div>
               <DayPicker mode="single" selected={selectedDate} onSelect={(d) => d && setSelectedDate(d)} modifiers={{ hasBooking: bookingDateObjects, blocked: blockedDateObjects, partial: partialDateObjects, past: pastDates }} modifiersClassNames={{ hasBooking: 'rdp-day_hasBooking', blocked: 'rdp-day_blocked', partial: 'rdp-day_partial', past: 'rdp-day_past' }} />
@@ -625,7 +676,6 @@ export default function AdminPage() {
                   alert('מסגרת העבודה עודכנה בהצלחה! 🎉');
                 }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">עדכון מסגרת עבודה</button>
                 
-                {/* לחצן דינמי למחיקה וחזרה לברירת מחדל */}
                 {dailySchedules.some(ds => ds.date === toLocalDateString(selectedDate)) && (
                   <button 
                     onClick={async () => { 
@@ -792,7 +842,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- לשונית ניהול שירותים דינמית --- */}
         {activeTab === 'services' && (
           <div className="space-y-5 animate-in fade-in duration-500">
             <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
@@ -842,7 +891,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* מודאל צף להוספה או עריכה של שירות */}
             {isServiceModalOpen && (
               <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsServiceModalOpen(false)}>
                 <form
@@ -939,7 +987,6 @@ export default function AdminPage() {
         )}
       </main>
 
-      {/* בר ניווט תחתון משודרג עם 6 לשוניות מותאמות באופן מושלם */}
       <div className="fixed bottom-5 left-4 right-4 z-[120] max-w-md mx-auto">
         <div className="bg-slate-900/95 backdrop-blur-2xl rounded-[2rem] p-1.5 flex justify-between items-center shadow-2xl border border-white/10 gap-1">
           <button onClick={() => setActiveTab('daily')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'daily' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-500'}`}>
