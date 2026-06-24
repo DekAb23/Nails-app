@@ -108,7 +108,6 @@ export default function AdminPage() {
   const [breakStartTime, setBreakStartTime] = useState<string>('14:00');
   const [breakEndTime, setBreakEndTime] = useState<string>('16:00');
   
-  // הגדרת תאריך מקסימלי לפתיחת יומן
   const [maxCalendarOpenDate, setMaxCalendarOpenDate] = useState<string>('');
   const [savingMaxDate, setSavingMaxDate] = useState(false);
 
@@ -134,7 +133,7 @@ export default function AdminPage() {
   }, [selectedDate, dailySchedules]);
 
   const formatHeDate = (dateStr: string) => {
-    if (dateStr === '9999-12-31') return 'הגדרת יומן';
+    if (dateStr === '2035-12-31') return 'הגדרת יומן';
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
   };
@@ -154,12 +153,10 @@ export default function AdminPage() {
     setActivities(al || []);
     setDbServices(s || []);
 
-    // שליפת הגדרת תאריך פתיחת יומן מקסימלי מתוך הרשומה הפיקטיבית
-    const maxDateSetting = ds?.find(item => item.date === '9999-12-31');
+    const maxDateSetting = ds?.find(item => item.date === '2035-12-31');
     if (maxDateSetting) {
       setMaxCalendarOpenDate(maxDateSetting.start_time);
     } else {
-      // אם לא קיים, נחשב ברירת מחדל של חודשיים מהיום
       const defaultMax = new Date();
       defaultMax.setMonth(defaultMax.getMonth() + 2);
       setMaxCalendarOpenDate(toLocalDateString(defaultMax));
@@ -170,11 +167,16 @@ export default function AdminPage() {
     if (!maxCalendarOpenDate) return;
     setSavingMaxDate(true);
     try {
-      const { error } = await supabase.from('daily_schedules').upsert({
-        date: '9999-12-31',
+      // 1. קודם כל מוחקים את הרשומה הישנה כדי למנוע כפילויות או בעיות UPDATE
+      await supabase.from('daily_schedules').delete().eq('date', '2035-12-31');
+      
+      // 2. עכשיו עושים INSERT נקי שתמיד מאושר ומצליח במערכת
+      const { error } = await supabase.from('daily_schedules').insert([{
+        date: '2035-12-31',
         start_time: maxCalendarOpenDate,
         end_time: '00:00'
-      });
+      }]);
+      
       if (error) throw error;
       alert('טווח פתיחת היומן ללקוחות עודכן בהצלחה! 🎉');
       fetchData();
@@ -384,7 +386,7 @@ export default function AdminPage() {
   }), [blockedDates]);
 
   const partialDateObjects = useMemo(() => {
-    const daysWithSchedules = dailySchedules.filter(ds => ds.date !== '9999-12-31' && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).map(ds => ds.date);
+    const daysWithSchedules = dailySchedules.filter(ds => ds.date !== '2035-12-31' && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).map(ds => ds.date);
     const daysWithBreaks = blockedTimeSlots.map(bts => bts.date);
     const uniqueDays = Array.from(new Set([...daysWithSchedules, ...daysWithBreaks]));
     return uniqueDays.map(dateStr => {
@@ -410,7 +412,7 @@ export default function AdminPage() {
   const isFullBlocked = useMemo(() => blockedDates.some(bd => bd.date === toLocalDateString(selectedDate)), [blockedDates, selectedDate]);
   
   const futureBlockedList = useMemo(() => blockedDates.filter(bd => bd.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedDates, todayStr]);
-  const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date !== '9999-12-31' && ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
+  const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date !== '2035-12-31' && ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
   const futureBreaksList = useMemo(() => blockedTimeSlots.filter(bts => bts.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedTimeSlots, todayStr]);
 
   if (checkingAuth) return null;
@@ -613,7 +615,7 @@ export default function AdminPage() {
 
         {activeTab === 'calendar' && (
           <div className="space-y-5 animate-in fade-in duration-500">
-            {/* רכיב בחירת תאריך סגירה כללי - הכי מקצועי */}
+            {/* רכיב בחירת תאריך סגירה דינמי - מתוקן ל-2035 */}
             <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
               <div className="flex items-center gap-2.5 mb-5 text-right"><Eye size={15} className="text-[#c9a961]" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">טווח פתיחת יומן ללקוחות</h2></div>
               <p className="text-[9px] text-slate-400 mb-4 leading-tight">הגדירי עד איזה תאריך היומן יהיה פתוח לקביעת תורים. כל תאריך מעבר ליום שנבחר ייחסם אוטומטית ללקוחות.</p>

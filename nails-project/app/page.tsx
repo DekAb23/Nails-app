@@ -94,7 +94,6 @@ export default function Home() {
   const [dailySchedule, setDailySchedule] = useState<DailySchedule | null>(null);
   const [services, setServices] = useState<any[]>([]);
   
-  // תאריך הגבלת יומן מקסימלי שיימשך דינמית
   const [dbMaxCalendarDate, setDbMaxCalendarDate] = useState<string | null>(null);
 
   useEffect(() => {
@@ -165,8 +164,7 @@ export default function Home() {
     const { data: bd } = await supabase.from('blocked_dates').select('*');
     setBlockedDates(bd || []);
 
-    // שליפת הגדרת תאריך הסגירה הכללי של המנהלת
-    const { data: ds } = await supabase.from('daily_schedules').select('*').eq('date', '9999-12-31').maybeSingle();
+    const { data: ds } = await supabase.from('daily_schedules').select('*').eq('date', '2035-12-31').maybeSingle();
     if (ds && ds.start_time) {
       setDbMaxCalendarDate(ds.start_time);
     }
@@ -207,7 +205,6 @@ export default function Home() {
   const disabledDates = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     
-    // קביעת התאריך המקסימלי: מהדאטה-בייס או כברירת מחדל חודשיים קדימה
     let maxDate = new Date();
     if (dbMaxCalendarDate) {
       const [y, m, d] = dbMaxCalendarDate.split('-').map(Number);
@@ -517,7 +514,7 @@ export default function Home() {
             <div className="w-20 h-20 bg-amber-500 rounded-full flex items-center justify-center mx-auto text-white shadow-2xl animate-bounce"><Check size={36} /></div>
             <h2 className="text-4xl font-serif italic text-slate-900">הבקשה נשלחה!</h2>
             <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm">
-              التור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
+              התור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
               ברגע שהתור יאושר , תקבלי הודעת SMS למכשירך עם פרטי התור המלאים ! ❤️
             </p>
             <button onClick={() => window.location.reload()} className="px-16 py-5 bg-slate-950 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-xs">סגור</button>
