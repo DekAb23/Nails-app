@@ -7,7 +7,7 @@ import {
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone,
   MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock,
   ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus, Bell, CheckCircle2,
-  Eye, MoonStar, Loader2, CalendarDays, Inbox, CheckCheck
+  Eye, MoonStar, Loader2, CalendarDays, Inbox, CheckCheck, BarChart3
 } from 'lucide-react';
 import { supabase, Booking, BlockedDate, DailySchedule } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -73,6 +73,26 @@ const timeToMinutes = (time: string) => {
 
 const minutesToTime = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/** Extract numeric ILS amount from a display price string (e.g. "150 ₪"). */
+const parsePrice = (price: unknown): number => {
+  if (typeof price === 'number' && Number.isFinite(price)) return price;
+  if (typeof price !== 'string') return 0;
+  const digits = price.replace(/[^\d.]/g, '');
+  const n = Number(digits);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const formatILS = (amount: number) =>
+  `₪${Math.round(amount).toLocaleString('he-IL')}`;
+
+const formatWorkDuration = (totalMinutes: number) => {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h <= 0) return `${m} דק'`;
+  if (m === 0) return `${h} שע'`;
+  return `${h}:${String(m).padStart(2, '0')} שע'`;
+};
 
 /* ------------------------------------------------------------------ *
  * Presentational building blocks
@@ -343,6 +363,9 @@ export default function AdminPage() {
     customerPhone: '',
     sendSms: true,
   });
+
+  // Zero-footprint analytics sheet (additive UI only)
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
@@ -878,6 +901,80 @@ export default function AdminPage() {
     return { state: 'done' as const, booking: null as Booking | null, minutesUntil: 0 };
   }, [bookings, todayStr, nowMinutes]);
 
+  // Pure client analytics — maps confirmed bookings to service prices (no schema changes).
+  const analytics = useMemo(() => {
+    const priceById = new Map<string, number>();
+    const priceByTitle = new Map<string, number>();
+    dbServices.forEach((s) => {
+      const p = parsePrice(s.price);
+      if (s.id) priceById.set(String(s.id), p);
+      if (s.title) priceByTitle.set(String(s.title).trim(), p);
+    });
+
+    const priceFor = (b: Booking) => {
+      if (b.service_id && priceById.has(String(b.service_id))) return priceById.get(String(b.service_id))!;
+      if (b.service_title && priceByTitle.has(b.service_title.trim())) return priceByTitle.get(b.service_title.trim())!;
+      return 0;
+    };
+
+    const durationFor = (b: Booking) => {
+      if (typeof b.service_duration === 'number' && b.service_duration > 0) return b.service_duration;
+      const start = timeToMinutes(b.start_time);
+      const end = timeToMinutes(b.end_time);
+      return Math.max(0, end - start);
+    };
+
+    const monthPrefix = todayStr.slice(0, 7); // YYYY-MM
+    const confirmed = bookings.filter(
+      (b) => b.status === 'confirmed' && b.customer_phone !== '0508917748'
+    );
+
+    let todayRevenue = 0;
+    let monthRevenue = 0;
+    let todayWorkMinutes = 0;
+    let completedToday = 0;
+    const serviceCounts: Record<string, number> = {};
+
+    confirmed.forEach((b) => {
+      const price = priceFor(b);
+      if (b.date === todayStr) {
+        todayRevenue += price;
+        todayWorkMinutes += durationFor(b);
+        if (timeToMinutes(b.end_time) <= nowMinutes) completedToday += 1;
+      }
+      if (b.date.startsWith(monthPrefix)) {
+        monthRevenue += price;
+      }
+      const title = (b.service_title || '').trim() || 'לא מוגדר';
+      serviceCounts[title] = (serviceCounts[title] || 0) + 1;
+    });
+
+    let topService = '—';
+    let topCount = 0;
+    Object.entries(serviceCounts).forEach(([title, count]) => {
+      if (count > topCount) {
+        topCount = count;
+        topService = title;
+      }
+    });
+
+    return { todayRevenue, monthRevenue, todayWorkMinutes, topService, completedToday };
+  }, [bookings, dbServices, todayStr, nowMinutes]);
+
+  useEffect(() => {
+    if (!isAnalyticsOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsAnalyticsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [isAnalyticsOpen]);
+
   // Dynamic free slots for Smart Manual Booking modal
   const manualAvailableSlots = useMemo(() => {
     const dateStr = manualBookingForm.date;
@@ -1111,6 +1208,16 @@ export default function AdminPage() {
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsAnalyticsOpen(true)}
+                aria-label="תובנות והכנסות"
+                className="flex h-9 items-center gap-1 rounded-full border border-[#c9a961]/25 bg-[#c9a961]/10 px-2.5 text-[10px] font-semibold tracking-tight text-[#b8964f] transition-all active:scale-95"
+              >
+                <BarChart3 size={12} />
+                <span className="tabular-nums">₪</span>
+                תובנות
+              </button>
               <button
                 type="button"
                 onClick={openManualBookingModal}
@@ -1998,6 +2105,85 @@ export default function AdminPage() {
           </div>
         )}
       </main>
+
+      {/* ---------------- Analytics floating bottom sheet ---------------- */}
+      {isAnalyticsOpen && (
+        <div
+          className="fixed inset-0 z-[160] flex items-end justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="תובנות והכנסות"
+        >
+          <button
+            type="button"
+            aria-label="סגירה"
+            className="absolute inset-0 bg-slate-950/30 backdrop-blur-md transition-opacity"
+            onClick={() => setIsAnalyticsOpen(false)}
+          />
+          <div
+            className="anim-sheet relative z-10 w-full max-w-lg rounded-t-[1.75rem] border border-white/50 border-b-0 bg-[#FDFBF6]/95 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.2)] backdrop-blur-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300/80" aria-hidden="true" />
+
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium tracking-tight text-slate-400">תובנות והכנסות</p>
+                <h2 className="font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">
+                  מבט כספי מהיר
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAnalyticsOpen(false)}
+                aria-label="סגירה"
+                className={`${ACTION_CIRCLE} bg-slate-200/50 text-slate-500`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Hero metric */}
+            <div className="mb-3 rounded-3xl border border-[#c9a961]/25 bg-gradient-to-br from-white/90 via-white/80 to-[#faf6ec]/80 p-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl">
+              <p className="text-[10px] font-medium tracking-tight text-slate-400">הכנסה צפויה להיום</p>
+              <p className="mt-1.5 text-[32px] font-semibold leading-none tracking-tight tabular-nums text-[#b8964f]">
+                {formatILS(analytics.todayRevenue)}
+              </p>
+              <p className="mt-2 text-[10.5px] font-medium tracking-tight text-slate-400">
+                מבוסס על תורים מאושרים · מחירון השירותים
+              </p>
+            </div>
+
+            {/* 2×2 bento */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-slate-900/[0.06] bg-white/85 p-3 shadow-sm backdrop-blur-2xl">
+                <p className="text-[9px] font-medium tracking-tight text-slate-400">הכנסה חודשית</p>
+                <p className="mt-1.5 text-[18px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">
+                  {formatILS(analytics.monthRevenue)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-900/[0.06] bg-white/85 p-3 shadow-sm backdrop-blur-2xl">
+                <p className="text-[9px] font-medium tracking-tight text-slate-400">שעות עבודה היום</p>
+                <p className="mt-1.5 text-[18px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">
+                  {formatWorkDuration(analytics.todayWorkMinutes)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-900/[0.06] bg-white/85 p-3 shadow-sm backdrop-blur-2xl">
+                <p className="text-[9px] font-medium tracking-tight text-slate-400">טיפול מוביל</p>
+                <p className="mt-1.5 truncate text-[13px] font-semibold leading-tight tracking-tight text-[#b8964f]">
+                  {analytics.topService}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-900/[0.06] bg-white/85 p-3 shadow-sm backdrop-blur-2xl">
+                <p className="text-[9px] font-medium tracking-tight text-slate-400">תורים שהושלמו</p>
+                <p className="mt-1.5 text-[18px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">
+                  {analytics.completedToday}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---------------- Quick calendar sheet ---------------- */}
       {isQuickCalendarOpen && (
