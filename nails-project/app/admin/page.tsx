@@ -332,6 +332,18 @@ export default function AdminPage() {
   const [editingService, setEditingService] = useState<any | null>(null);
   const [serviceForm, setServiceForm] = useState({ title: '', price: '', duration: '', duration_minutes: 30 });
 
+  // Smart Manual Booking modal (additive feature)
+  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
+  const [savingManualBooking, setSavingManualBooking] = useState(false);
+  const [manualBookingForm, setManualBookingForm] = useState({
+    serviceId: '',
+    date: '',
+    startTime: '',
+    customerName: '',
+    customerPhone: '',
+    sendSms: true,
+  });
+
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customHoursStartTime, setCustomHoursStartTime] = useState<string>('09:00');
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('16:00');
@@ -560,6 +572,131 @@ export default function AdminPage() {
     }
   };
 
+  const openManualBookingModal = () => {
+    setManualBookingForm({
+      serviceId: dbServices[0]?.id ?? '',
+      date: toLocalDateString(selectedDate),
+      startTime: '',
+      customerName: '',
+      customerPhone: '',
+      sendSms: true,
+    });
+    setIsManualBookingOpen(true);
+  };
+
+  const handleCreateManualBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingManualBooking) return;
+
+    const service = dbServices.find((s) => s.id === manualBookingForm.serviceId);
+    const name = manualBookingForm.customerName.trim();
+    const phone = manualBookingForm.customerPhone.replace(/\D/g, '');
+    const dateStr = manualBookingForm.date;
+    const startTime = manualBookingForm.startTime;
+
+    if (!service || !name || phone.length < 9 || !dateStr || !startTime) {
+      showToast('אנא מלאי את כל השדות ובחרי שעה פנויה.', 'error');
+      return;
+    }
+
+    const duration = Number(service.duration_minutes) || 30;
+    const startMins = timeToMinutes(startTime);
+    const endMins = startMins + duration;
+    const endTime = minutesToTime(endMins);
+
+    // Double-check conflict validation prior to insertion
+    if (blockedDates.some((bd) => bd.date === dateStr)) {
+      showToast('היום חסום במלואו — לא ניתן לקבוע תור.', 'error');
+      return;
+    }
+
+    const schedule = dailySchedules.find((ds) => ds.date === dateStr && ds.date !== '2035-12-31');
+    const workStart = schedule ? timeToMinutes(schedule.start_time) : 9 * 60;
+    const workEnd = schedule ? timeToMinutes(schedule.end_time) : 16 * 60;
+    if (startMins < workStart || endMins > workEnd) {
+      showToast('השעה שנבחרה מחוץ לשעות העבודה.', 'error');
+      return;
+    }
+
+    const hitsBreak = blockedTimeSlots.some(
+      (bts) =>
+        bts.date === dateStr &&
+        startMins < timeToMinutes(bts.end_time) &&
+        endMins > timeToMinutes(bts.start_time)
+    );
+    if (hitsBreak) {
+      showToast('השעה חופפת להפסקה מוגדרת.', 'error');
+      return;
+    }
+
+    const hitsBooking = bookings.some(
+      (b) =>
+        b.date === dateStr &&
+        (b.status === 'confirmed' || b.status === 'pending') &&
+        b.customer_phone !== '0508917748' &&
+        startMins < timeToMinutes(b.end_time) &&
+        endMins > timeToMinutes(b.start_time)
+    );
+    if (hitsBooking) {
+      showToast('השעה כבר תפוסה. בחרי שעה אחרת.', 'error');
+      return;
+    }
+
+    setSavingManualBooking(true);
+    try {
+      const { error } = await supabase.from('bookings').insert([
+        {
+          service_id: service.id,
+          service_title: service.title,
+          service_duration: duration,
+          date: dateStr,
+          start_time: startTime,
+          end_time: endTime,
+          customer_name: name,
+          customer_phone: phone,
+          cancellation_token: uuidv4(),
+          status: 'confirmed',
+          is_verified: true,
+        },
+      ]);
+      if (error) throw error;
+
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const formattedDate = `${day}/${month}`;
+      const formattedTime = startTime.slice(0, 5);
+
+      if (manualBookingForm.sendSms) {
+        const customerMessage = `היי ${name},\nהתור שלך אושר בהצלחה! 🎉\n\n${service.title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב -\nהשלמה/תיקון בתוספת 10 ש"ח לציפורן.\nאי געה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nנתראה! ❤️`;
+        try {
+          await fetch('/api/sms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, message: customerMessage, isDirectMessage: true }),
+          });
+        } catch (smsErr) {
+          console.error('SMS Send bypassed or failed:', smsErr);
+        }
+      }
+
+      await supabase.from('activity_log').insert([
+        {
+          id: uuidv4(),
+          action: `תור נקבע ידנית עבור ${name} לתאריך ${formattedDate} בשעה ${formattedTime}`,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      setIsManualBookingOpen(false);
+      await fetchData();
+      showToast('התור נקבע בהצלחה! 🎉');
+    } catch (err) {
+      console.error(err);
+      showToast('שגיאה בקביעת התור הידני.', 'error');
+    } finally {
+      setSavingManualBooking(false);
+    }
+  };
+
   const handleOpenServiceModal = (service: any = null) => {
     if (service) {
       setEditingService(service);
@@ -704,6 +841,100 @@ export default function AdminPage() {
 
     return { closed, opensAt, closesAt, openNow, onBreak, nextBooking: upcoming[0] ?? null };
   }, [blockedDates, dailySchedules, blockedTimeSlots, bookings, todayStr, nowMinutes]);
+
+  // Next Up Spotlight — today's next confirmed booking relative to now (additive UI only).
+  const nextUpSpotlight = useMemo(() => {
+    const todayConfirmed = bookings
+      .filter(
+        (b) =>
+          b.date === todayStr &&
+          b.status === 'confirmed' &&
+          b.customer_phone !== '0508917748'
+      )
+      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    if (todayConfirmed.length === 0) {
+      return { state: 'empty' as const, booking: null as Booking | null, minutesUntil: 0 };
+    }
+
+    const live = todayConfirmed.find((b) => {
+      const start = timeToMinutes(b.start_time);
+      const end = timeToMinutes(b.end_time);
+      return nowMinutes >= start && nowMinutes < end;
+    });
+    if (live) {
+      return { state: 'live' as const, booking: live, minutesUntil: 0 };
+    }
+
+    const upcoming = todayConfirmed.find((b) => timeToMinutes(b.start_time) >= nowMinutes);
+    if (upcoming) {
+      return {
+        state: 'upcoming' as const,
+        booking: upcoming,
+        minutesUntil: timeToMinutes(upcoming.start_time) - nowMinutes,
+      };
+    }
+
+    return { state: 'done' as const, booking: null as Booking | null, minutesUntil: 0 };
+  }, [bookings, todayStr, nowMinutes]);
+
+  // Dynamic free slots for Smart Manual Booking modal
+  const manualAvailableSlots = useMemo(() => {
+    const dateStr = manualBookingForm.date;
+    const service = dbServices.find((s) => s.id === manualBookingForm.serviceId);
+    if (!dateStr || !service) return [] as string[];
+
+    if (blockedDates.some((bd) => bd.date === dateStr)) return [] as string[];
+
+    const duration = Number(service.duration_minutes) || 30;
+    const schedule = dailySchedules.find((ds) => ds.date === dateStr && ds.date !== '2035-12-31');
+    const workStart = schedule ? timeToMinutes(schedule.start_time) : 9 * 60;
+    const workEnd = schedule ? timeToMinutes(schedule.end_time) : 16 * 60;
+
+    const dayBreaks = blockedTimeSlots
+      .filter((bts) => bts.date === dateStr)
+      .map((bts) => ({ start: timeToMinutes(bts.start_time), end: timeToMinutes(bts.end_time) }));
+
+    const dayBookings = bookings
+      .filter(
+        (b) =>
+          b.date === dateStr &&
+          (b.status === 'confirmed' || b.status === 'pending') &&
+          b.customer_phone !== '0508917748'
+      )
+      .map((b) => ({ start: timeToMinutes(b.start_time), end: timeToMinutes(b.end_time) }));
+
+    const slots: string[] = [];
+    const isToday = dateStr === todayStr;
+    for (let pos = workStart; pos + duration <= workEnd; pos += 30) {
+      if (isToday && pos <= nowMinutes) continue;
+      const slotEnd = pos + duration;
+      const overlapsBreak = dayBreaks.some((br) => pos < br.end && slotEnd > br.start);
+      const overlapsBooking = dayBookings.some((bk) => pos < bk.end && slotEnd > bk.start);
+      if (!overlapsBreak && !overlapsBooking) slots.push(minutesToTime(pos));
+    }
+    return slots;
+  }, [
+    manualBookingForm.date,
+    manualBookingForm.serviceId,
+    dbServices,
+    blockedDates,
+    dailySchedules,
+    blockedTimeSlots,
+    bookings,
+    todayStr,
+    nowMinutes,
+  ]);
+
+  // Clear selected start time if it becomes unavailable after date/service change
+  useEffect(() => {
+    if (
+      manualBookingForm.startTime &&
+      !manualAvailableSlots.includes(manualBookingForm.startTime)
+    ) {
+      setManualBookingForm((prev) => ({ ...prev, startTime: '' }));
+    }
+  }, [manualAvailableSlots, manualBookingForm.startTime]);
 
   if (checkingAuth) return null;
   if (!session) return <LoginForm onLoginSuccess={() => fetchData()} />;
@@ -881,6 +1112,15 @@ export default function AdminPage() {
 
             <div className="flex shrink-0 items-center gap-1.5">
               <button
+                type="button"
+                onClick={openManualBookingModal}
+                aria-label="תור חדש"
+                className="flex h-9 items-center gap-1 rounded-full bg-slate-900 px-2.5 text-[10px] font-semibold tracking-tight text-white shadow-[0_2px_8px_-2px_rgba(15,23,42,0.4)] transition-all active:scale-95"
+              >
+                <Plus size={13} strokeWidth={2.5} />
+                תור חדש
+              </button>
+              <button
                 onClick={() => setActiveTab('approvals')}
                 aria-label={`בקשות תורים (${pendingApprovals.length})`}
                 className={`relative flex h-9 w-9 items-center justify-center rounded-full border transition-all active:scale-90 ${
@@ -1042,6 +1282,75 @@ export default function AdminPage() {
         {/* ======================= DAILY ======================= */}
         {activeTab === 'daily' && (
           <div className="anim-fade-up space-y-3">
+            {/* Next Up Spotlight — כרטיס התור הקרוב */}
+            <div className="mb-0 rounded-2xl border border-slate-900/[0.06] bg-gradient-to-r from-white/90 via-white/80 to-[#fbf8f2]/70 p-3 shadow-sm backdrop-blur-xl">
+              {nextUpSpotlight.booking ? (
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {nextUpSpotlight.state === 'live' ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold leading-none tracking-tight text-emerald-700 ring-1 ring-inset ring-emerald-600/15">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          </span>
+                          מתקיים כעת
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-[#c9a961]/12 px-2 py-0.5 text-[9px] font-semibold leading-none tracking-tight tabular-nums text-[#b8964f] ring-1 ring-inset ring-[#c9a961]/20">
+                          {nextUpSpotlight.minutesUntil > 0
+                            ? `התור הבא בעוד ${nextUpSpotlight.minutesUntil} דק'`
+                            : `התור הבא · ${nextUpSpotlight.booking.start_time.slice(0, 5)}`}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold tabular-nums tracking-tight text-slate-400">
+                        {nextUpSpotlight.booking.start_time.slice(0, 5)}–{nextUpSpotlight.booking.end_time.slice(0, 5)}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 truncate text-[14px] font-semibold not-italic leading-tight tracking-tight text-slate-900">
+                      {nextUpSpotlight.booking.customer_name}
+                    </p>
+                    <p className="mt-0.5 truncate text-[10.5px] font-medium not-italic leading-tight tracking-tight text-[#c9a961]">
+                      {nextUpSpotlight.booking.service_title}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <a
+                      href={`tel:${nextUpSpotlight.booking.customer_phone}`}
+                      aria-label="חיוג ללקוחה"
+                      title="חיוג"
+                      className={`${ACTION_CIRCLE} h-8 w-8 bg-slate-100/80 text-slate-500 ring-1 ring-inset ring-slate-600/[0.06]`}
+                    >
+                      <Phone size={13} />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const phone = nextUpSpotlight.booking!.customer_phone.replace(/^0/, '');
+                        const text = encodeURIComponent(
+                          `היי ${nextUpSpotlight.booking!.customer_name}, מחכה לך בקליניקה 💕`
+                        );
+                        window.open(`https://wa.me/972${phone}?text=${text}`);
+                      }}
+                      aria-label="וואטסאפ ללקוחה"
+                      title="וואטסאפ"
+                      className={`${ACTION_CIRCLE} h-8 w-8 bg-green-50/90 text-green-600 ring-1 ring-inset ring-green-600/10`}
+                    >
+                      <MessageCircle size={13} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2 py-1 text-center">
+                  <Sparkles size={12} className="shrink-0 text-[#c9a961]" />
+                  <p className="text-[12px] font-medium tracking-tight text-slate-400">
+                    הסתיימו התורים להיום ✨
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Day navigator */}
             <div className={`${CARD} flex items-center justify-between gap-1.5 p-2`}>
               <button
@@ -1713,6 +2022,164 @@ export default function AdminPage() {
             />
             {calendarLegend}
           </div>
+        </div>
+      )}
+
+      {/* ---------------- Smart Manual Booking modal ---------------- */}
+      {isManualBookingOpen && (
+        <div
+          className={SCRIM}
+          onClick={() => !savingManualBooking && setIsManualBookingOpen(false)}
+        >
+          <form
+            onSubmit={handleCreateManualBooking}
+            className={`${SHEET} max-h-[90vh] max-w-[21rem] overflow-y-auto p-5 text-right`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`mb-4 flex items-center justify-between border-b ${HAIRLINE} pb-3.5`}>
+              <h2 className="font-playfair text-[17px] italic tracking-tight text-slate-900">תור חדש ידני</h2>
+              <button
+                type="button"
+                onClick={() => !savingManualBooking && setIsManualBookingOpen(false)}
+                aria-label="סגירה"
+                className={`${ACTION_CIRCLE} bg-slate-200/50 text-slate-500`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className={FIELD_LABEL}>שירות</label>
+                <select
+                  required
+                  value={manualBookingForm.serviceId}
+                  onChange={(e) =>
+                    setManualBookingForm((prev) => ({ ...prev, serviceId: e.target.value, startTime: '' }))
+                  }
+                  className={`${FIELD} appearance-none`}
+                >
+                  {dbServices.length === 0 && <option value="">אין שירותים</option>}
+                  {dbServices.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title} · {s.price} · {s.duration_minutes} דק'
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={FIELD_LABEL}>תאריך</label>
+                <input
+                  type="date"
+                  required
+                  value={manualBookingForm.date}
+                  onChange={(e) =>
+                    setManualBookingForm((prev) => ({ ...prev, date: e.target.value, startTime: '' }))
+                  }
+                  className={`${FIELD} tabular-nums`}
+                />
+              </div>
+
+              <div>
+                <label className={FIELD_LABEL}>שעות פנויות</label>
+                {blockedDates.some((bd) => bd.date === manualBookingForm.date) ? (
+                  <p className="rounded-2xl bg-red-50/80 px-3 py-2.5 text-[11px] font-medium tracking-tight text-red-500">
+                    היום חסום במלואו — אין שעות זמינות.
+                  </p>
+                ) : manualAvailableSlots.length === 0 ? (
+                  <p className="rounded-2xl bg-slate-100/60 px-3 py-2.5 text-[11px] font-medium tracking-tight text-slate-400">
+                    אין שעות פנויות לתאריך ושירות אלו.
+                  </p>
+                ) : (
+                  <div className="flex max-h-[8.5rem] flex-wrap gap-1.5 overflow-y-auto rounded-2xl bg-slate-50/50 p-2 ring-1 ring-inset ring-slate-900/[0.04]">
+                    {manualAvailableSlots.map((slot) => {
+                      const active = manualBookingForm.startTime === slot;
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => setManualBookingForm((prev) => ({ ...prev, startTime: slot }))}
+                          className={`rounded-2xl px-2.5 py-1.5 text-[12px] font-semibold tabular-nums tracking-tight transition-all active:scale-95 ${
+                            active
+                              ? 'bg-slate-900 text-white shadow-sm'
+                              : 'bg-white/90 text-slate-700 ring-1 ring-inset ring-slate-900/[0.06]'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className={FIELD_LABEL}>שם הלקוחה</label>
+                <input
+                  type="text"
+                  required
+                  value={manualBookingForm.customerName}
+                  onChange={(e) =>
+                    setManualBookingForm((prev) => ({ ...prev, customerName: e.target.value }))
+                  }
+                  placeholder="שם מלא"
+                  className={FIELD}
+                />
+              </div>
+
+              <div>
+                <label className={FIELD_LABEL}>טלפון</label>
+                <input
+                  type="tel"
+                  required
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={manualBookingForm.customerPhone}
+                  onChange={(e) =>
+                    setManualBookingForm((prev) => ({
+                      ...prev,
+                      customerPhone: e.target.value.replace(/\D/g, ''),
+                    }))
+                  }
+                  placeholder="05XXXXXXXX"
+                  className={`${FIELD} tabular-nums`}
+                />
+              </div>
+
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-inset ring-slate-900/[0.04]">
+                <span className="text-[12px] font-medium tracking-tight text-slate-700">
+                  שלח הודעת SMS לאישור התור
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={manualBookingForm.sendSms}
+                  onClick={() =>
+                    setManualBookingForm((prev) => ({ ...prev, sendSms: !prev.sendSms }))
+                  }
+                  className={`relative h-6 w-10 shrink-0 rounded-full transition-colors ${
+                    manualBookingForm.sendSms ? 'bg-[#c9a961]' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                      manualBookingForm.sendSms ? 'right-0.5' : 'right-[1.125rem]'
+                    }`}
+                  />
+                </button>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingManualBooking || !manualBookingForm.startTime || dbServices.length === 0}
+              className={`mt-5 ${BTN_DARK} disabled:opacity-50`}
+            >
+              {savingManualBooking && <Loader2 size={13} className="animate-spin" />}
+              {savingManualBooking ? 'שומרת...' : 'קביעת תור מאושר'}
+            </button>
+          </form>
         </div>
       )}
 
