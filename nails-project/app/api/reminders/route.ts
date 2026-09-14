@@ -14,6 +14,38 @@ const timeToMinutes = (timeStr: string) => {
   return h * 60 + m;
 };
 
+// פונקציית עזר לשליחה בטוחה של SMS עם הגבלת זמן (Timeout של 6 שניות)
+async function sendSafeSMS(origin: string, phone: string, message: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    const smsResponse = await fetch(`${origin}/api/sms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        message,
+        isDirectMessage: true,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!smsResponse.ok) {
+      console.error(`SMS endpoint returned status ${smsResponse.status} for ${phone}`);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    console.error(`Failed to send SMS to ${phone}:`, err.message || err);
+    return false;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     // 1. חילוץ הזמן הנוכחי המדויק בישראל
@@ -38,14 +70,21 @@ export async function GET(request: Request) {
       .eq('status', 'confirmed')
       .neq('service_id', 'verification');
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase fetch error in reminders:', error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 200 });
+    }
 
     if (!todaysBookings || todaysBookings.length === 0) {
-      return NextResponse.json({ success: true, message: `No bookings found for today (${todayStr})` });
+      return NextResponse.json({
+        success: true,
+        message: `No bookings found for today (${todayStr})`,
+      });
     }
 
     let sentCount = 0;
     const processedReminders = [];
+    const origin = new URL(request.url).origin;
 
     // 3. מעבר על התורים וסינון חלון הזמן היעיל (25-35 דקות לפני)
     for (const booking of todaysBookings) {
@@ -57,47 +96,38 @@ export async function GET(request: Request) {
       const bookingMinutes = timeToMinutes(booking.start_time);
       const minutesUntilBooking = bookingMinutes - currentMinutes;
 
-      // 🎯 החלון האידיאלי: תופס את הלקוחה בטווח של 25 עד 35 דקות לפני הטיפול
+      // החלון האידיאלי: תופס את הלקוחה בטווח של 25 עד 35 דקות לפני הטיפול
       if (minutesUntilBooking >= 25 && minutesUntilBooking <= 35) {
-        // ניקוי השעה לתצוגה אלגנטית בלי השניות (מציג 16:30 במקום 16:30:00)
         const formattedTime = booking.start_time.slice(0, 5);
-        
-        // הנוסח החסכוני והרשמי (SMS בודד)
         const reminderMessage = `היי, תזכורת לתור שלך היום אצל אדר קוסמטיקס בשעה ${formattedTime}. נתראה! 💕`;
 
-        // שליחת ה-SMS באמצעות ה-API הקיים שלך
-        const smsResponse = await fetch(`${new URL(request.url).origin}/api/sms`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: booking.customer_phone,
-            message: reminderMessage,
-            isDirectMessage: true
-          })
-        });
+        const isSuccess = await sendSafeSMS(origin, booking.customer_phone, reminderMessage);
 
-        if (smsResponse.ok) {
+        if (isSuccess) {
           // חסימת התור ב-Database כדי שלא יישלח שוב בריצה הבאה
           await supabase
             .from('bookings')
             .update({ verification_code: `rem-sent-${Date.now()}` })
             .eq('id', booking.id);
-            
+
           sentCount++;
           processedReminders.push({ customer: booking.customer_name, time: formattedTime });
         }
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       currentTime: `${String(nowIL.getHours()).padStart(2, '0')}:${String(nowIL.getMinutes()).padStart(2, '0')}`,
       remindersSent: sentCount,
-      details: processedReminders 
+      details: processedReminders,
     });
-
   } catch (err: any) {
     console.error('Reminder cron error:', err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    // מחזירים 200 כדי שה-Cron Job לא יקבל 500 וישלח מיילים
+    return NextResponse.json(
+      { success: false, error: err.message || 'Internal cron error' },
+      { status: 200 }
+    );
   }
 }
