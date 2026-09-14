@@ -1,16 +1,52 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 import {
   Calendar as CalendarIcon, Users, Clock, XCircle, Phone,
-  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock, ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus, Bell, CheckCircle2, Eye
+  MessageCircle, Trash2, Settings2, LogOut, History, Sliders, AlertTriangle, X, Activity, Lock,
+  ChevronRight, ChevronLeft, Hand, Star, Heart, Search, Sparkles, Edit3, Plus, Bell, CheckCircle2,
+  Eye, MoonStar, Loader2, CalendarDays, Inbox, CheckCheck
 } from 'lucide-react';
-import { supabase, Booking, BlockedDate, DailySchedule, ActivityLog } from '@/lib/supabase';
+import { supabase, Booking, BlockedDate, DailySchedule } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+
+/* ------------------------------------------------------------------ *
+ * Design tokens
+ * ------------------------------------------------------------------ */
+
+const GOLD = '#c9a961';
+const GOLD_DEEP = '#b8964f';
+
+/** Rich frosted glass — the primary surface for every panel. */
+const CARD =
+  'rounded-3xl border border-slate-900/[0.06] bg-white/85 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl';
+/** Inset well used for closed slots and textured sub-surfaces. */
+const INSET = 'rounded-2xl border border-dashed border-slate-200 bg-slate-900/[0.03]';
+/** Warm gold gradient for VIP treatments and accents. */
+const GOLD_GRADIENT = 'bg-gradient-to-br from-[#e0c98a] via-[#c9a961] to-[#a8874a]';
+/** Hairline used for the timeline track and inner dividers. */
+const HAIRLINE = 'border-slate-900/[0.06]';
+const INPUT =
+  'w-full rounded-2xl border border-slate-900/[0.06] bg-white/70 px-3 py-2.5 text-center text-[13px] font-semibold tabular-nums tracking-tight outline-none transition-all focus:border-[#c9a961]/50 focus:bg-white focus:ring-4 focus:ring-[#c9a961]/10';
+const BTN_DARK =
+  'flex w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 py-3 text-[11px] font-semibold tracking-tight text-white shadow-[0_2px_10px_-2px_rgba(15,23,42,0.35)] transition-all active:scale-95';
+const BTN_GOLD =
+  'flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#c9a961] py-3 text-[11px] font-semibold tracking-tight text-white shadow-[0_2px_10px_-2px_rgba(201,169,97,0.45)] transition-all active:scale-95';
+/** Apple-style circular quick action. */
+const ACTION_CIRCLE =
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all active:scale-90';
+/** Right-aligned text field inside sheets. */
+const FIELD =
+  'w-full rounded-2xl border border-slate-900/[0.06] bg-white/70 px-3.5 py-3 text-right text-[14px] font-normal tracking-tight outline-none transition-all placeholder:text-slate-300 focus:border-[#c9a961]/50 focus:bg-white focus:ring-4 focus:ring-[#c9a961]/10';
+const FIELD_LABEL = 'mb-1.5 block text-[10px] font-medium tracking-tight text-slate-400';
+/** Dimmed, blurred scrim behind sheets. */
+const SCRIM = 'fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/20 p-4 backdrop-blur-lg';
+/** iOS sheet surface. */
+const SHEET =
+  'anim-pop w-full rounded-[1.75rem] border border-white/60 bg-white/85 shadow-[0_20px_60px_-12px_rgba(0,0,0,0.28)] backdrop-blur-2xl';
 
 type BlockedTimeSlot = {
   id?: string;
@@ -28,27 +64,188 @@ type CustomerStats = {
   favoriteService: string;
 };
 
+type AdminTab = 'daily' | 'approvals' | 'calendar' | 'customers' | 'services' | 'activity';
+
 const timeToMinutes = (time: string) => {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
 };
 
-function StatCard({ title, value, icon: Icon, color }: any) {
-  const colorStyles: any = {
-    'blue': 'bg-blue-500/5 text-blue-600 border-blue-500/10',
-    'gold': 'bg-[#c9a961]/5 text-[#b8964f] border-[#c9a961]/10',
-    'red': 'bg-red-500/5 text-red-600 border-red-500/10',
-  };
+const minutesToTime = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/* ------------------------------------------------------------------ *
+ * Presentational building blocks
+ * ------------------------------------------------------------------ */
+
+/** Tier 2 of the bento: a single metric tile with a gold accent number. */
+function MetricTile({
+  label,
+  value,
+  icon: Icon,
+  tone = 'slate',
+  onClick,
+}: {
+  label: string;
+  value: string | number;
+  icon: any;
+  tone?: 'slate' | 'gold' | 'amber' | 'red';
+  onClick?: () => void;
+}) {
+  const tones = {
+    slate: { icon: 'text-slate-300', value: 'text-slate-900' },
+    gold: { icon: 'text-[#c9a961]', value: 'text-[#b8964f]' },
+    amber: { icon: 'text-amber-400', value: 'text-amber-600' },
+    red: { icon: 'text-red-300', value: 'text-red-500' },
+  } as const;
+
+  const Element: any = onClick ? 'button' : 'div';
 
   return (
-    <div className={`backdrop-blur-2xl bg-white/60 border ${colorStyles[color]?.split(' ')[2] || 'border-slate-100'} p-3 md:p-4 rounded-2xl md:rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center w-full`}>
-      <p className="text-[10px] md:text-[11px] font-black text-slate-400 uppercase tracking-tighter mb-1.5">{title}</p>
-      <div className="flex items-center gap-2">
-        <Icon size={14} className={colorStyles[color]?.split(' ')[1] || 'text-slate-600'} />
-        <h3 className="text-lg md:text-2xl font-light text-slate-900 tabular-nums leading-none">{value}</h3>
+    <Element
+      onClick={onClick}
+      className={`flex min-w-0 flex-col items-center gap-1 rounded-2xl bg-white/60 px-1 py-2 ring-1 ring-inset ring-slate-900/[0.04] transition-all ${
+        onClick ? 'active:scale-95' : ''
+      }`}
+    >
+      <div className="flex items-center gap-1">
+        <Icon size={10} className={`${tones[tone].icon} shrink-0`} />
+        <span className={`text-[17px] font-semibold leading-none tracking-tight tabular-nums ${tones[tone].value}`}>
+          {value}
+        </span>
+      </div>
+      <span className="truncate text-[8.5px] font-medium leading-none tracking-tight text-slate-400">{label}</span>
+    </Element>
+  );
+}
+
+/** Gold-gradient VIP marker for loyal customers. */
+function VipBadge({ count }: { count: number }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1 rounded-full ${GOLD_GRADIENT} px-2 py-[0.1875rem] shadow-[0_2px_8px_-2px_rgba(201,169,97,0.6)]`}
+    >
+      <Star size={8} className="fill-white text-white" />
+      <span className="text-[9px] font-semibold leading-none tabular-nums text-white">{count}</span>
+    </span>
+  );
+}
+
+/** Compact contact affordance used on customer cards. */
+function ContactChip({
+  icon: Icon,
+  label,
+  href,
+  onClick,
+  tone,
+}: {
+  icon: any;
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  tone: 'slate' | 'green';
+}) {
+  const tones = {
+    slate: 'bg-white/80 text-slate-700 ring-slate-900/[0.06]',
+    green: 'bg-green-50/80 text-green-700 ring-green-600/10',
+  } as const;
+
+  const cls = `flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-[12px] font-semibold tracking-tight ring-1 ring-inset transition-all active:scale-95 ${tones[tone]}`;
+
+  if (href) {
+    return (
+      <a href={href} className={cls}>
+        <Icon size={13} /> {label}
+      </a>
+    );
+  }
+  return (
+    <button onClick={onClick} className={cls}>
+      <Icon size={13} /> {label}
+    </button>
+  );
+}
+
+function SectionHeader({
+  icon: Icon,
+  title,
+  description,
+  action,
+  accent = GOLD_DEEP,
+}: {
+  icon: any;
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+  accent?: string;
+}) {
+  return (
+    <div className="mb-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+            style={{ background: `${accent}14`, color: accent }}
+          >
+            <Icon size={12} />
+          </span>
+          <h2 className="truncate font-playfair text-[15px] italic leading-tight text-slate-900">{title}</h2>
+        </div>
+        {action}
+      </div>
+      {description && (
+        <p className="mt-1.5 text-[10.5px] font-normal leading-relaxed tracking-tight text-slate-400">{description}</p>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, description }: { icon: any; title: string; description?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-900/[0.05] bg-white/70 text-slate-300 shadow-[0_1px_6px_-2px_rgba(0,0,0,0.05)]">
+        <Icon size={18} />
+      </div>
+      <div>
+        <p className="font-playfair text-base italic text-slate-500">{title}</p>
+        {description && (
+          <p className="mt-1 text-[10.5px] font-normal tracking-tight text-slate-400">{description}</p>
+        )}
       </div>
     </div>
   );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex-1 rounded-2xl border border-slate-900/[0.05] bg-white/70 px-2 py-2.5 text-center shadow-[0_1px_6px_-2px_rgba(0,0,0,0.04)] backdrop-blur-xl">
+      <p className="text-[16px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">{value}</p>
+      <p className="mt-1.5 truncate text-[8.5px] font-medium leading-none tracking-tight text-slate-400">{label}</p>
+    </div>
+  );
+}
+
+/** Luxury status badge. Emerald = confirmed, amber = pending, slate = closed/break. */
+function Badge({ tone, children }: { tone: 'emerald' | 'amber' | 'slate' | 'gold'; children: React.ReactNode }) {
+  const tones = {
+    emerald: 'bg-emerald-50/80 text-emerald-700 ring-emerald-600/10',
+    amber: 'bg-amber-50/80 text-amber-700 ring-amber-600/10',
+    slate: 'bg-slate-100/70 text-slate-400 ring-slate-600/5',
+    gold: 'bg-[#c9a961]/10 text-[#b8964f] ring-[#c9a961]/15',
+  } as const;
+
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-[0.1875rem] text-[8.5px] font-semibold leading-none tracking-tight ring-1 ring-inset ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatusChip({ status }: { status?: string }) {
+  if (status === 'pending') return <Badge tone="amber">ממתין</Badge>;
+  return <Badge tone="emerald">מאושר</Badge>;
 }
 
 function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
@@ -69,14 +266,47 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen flex items-center justify-center bg-[#FDFBF6] px-4 font-sans text-right">
-      <div className="bg-white/90 backdrop-blur-3xl rounded-[2.5rem] border border-white p-10 max-w-sm w-full shadow-2xl text-center">
-        <div className="w-16 h-16 bg-slate-900 rounded-2xl mx-auto mb-8 flex items-center justify-center shadow-lg"><Settings2 className="text-white w-8 h-8" /></div>
-        <h1 className="text-2xl font-serif italic text-slate-900 mb-8 tracking-tight">כניסת מנהלת</h1>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-center outline-none focus:border-[#c9a961] transition-all text-base" placeholder="אימייל" required />
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-center outline-none focus:border-[#c9a961] transition-all text-base" placeholder="סיסמה" required />
-          <button type="submit" disabled={loading} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-all text-sm tracking-widest uppercase mt-4">התחברי</button>
+    <div dir="rtl" className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#FDFBF6] px-4 text-right font-sans">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-[#c9a961]/10 blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-64 w-64 rounded-full bg-slate-300/20 blur-3xl" />
+      </div>
+
+      <div className="anim-pop relative w-full max-w-[20rem] rounded-[2rem] border border-slate-900/[0.05] bg-white/75 p-7 text-center shadow-[0_8px_40px_-8px_rgba(0,0,0,0.12)] backdrop-blur-2xl">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-[1.125rem] bg-slate-900 shadow-[0_4px_16px_-4px_rgba(15,23,42,0.5)]">
+          <Settings2 className="h-6 w-6 text-white" />
+        </div>
+        <h1 className="font-playfair text-[22px] italic leading-tight tracking-tight text-slate-900">כניסת מנהלת</h1>
+        <p className="mt-2 text-[9px] font-semibold uppercase tracking-[0.24em] text-[#c9a961]">אדר קוסמטיקס</p>
+
+        <form onSubmit={handleLogin} className="mt-7 space-y-2">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-2xl border border-slate-900/[0.06] bg-white/70 px-4 py-3.5 text-center text-[15px] tracking-tight outline-none transition-all placeholder:text-slate-300 focus:border-[#c9a961]/50 focus:bg-white focus:ring-4 focus:ring-[#c9a961]/10"
+            placeholder="אימייל"
+            required
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-2xl border border-slate-900/[0.06] bg-white/70 px-4 py-3.5 text-center text-[15px] tracking-tight outline-none transition-all placeholder:text-slate-300 focus:border-[#c9a961]/50 focus:bg-white focus:ring-4 focus:ring-[#c9a961]/10"
+            placeholder="סיסמה"
+            required
+          />
+          {error && (
+            <p className="anim-fade-up rounded-2xl bg-red-50/80 py-2.5 text-[11px] font-semibold tracking-tight text-red-500">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 text-[14px] font-semibold tracking-tight text-white shadow-[0_4px_16px_-4px_rgba(15,23,42,0.45)] transition-all active:scale-95 disabled:opacity-60"
+          >
+            {loading && <Loader2 size={14} className="animate-spin" />}
+            התחברי
+          </button>
         </form>
       </div>
     </div>
@@ -86,17 +316,17 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
 export default function AdminPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [activeTab, setActiveTab] = useState<'daily' | 'calendar' | 'customers' | 'services' | 'activity' | 'approvals'>('daily');
+  const [activeTab, setActiveTab] = useState<AdminTab>('daily');
   const [isQuickCalendarOpen, setIsQuickCalendarOpen] = useState(false);
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [dailySchedules, setDailySchedules] = useState<DailySchedule[]>([]);
   const [blockedTimeSlots, setBlockedTimeSlots] = useState<BlockedTimeSlot[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
-  
+
   const [dbServices, setDbServices] = useState<any[]>([]);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<any | null>(null);
@@ -107,9 +337,35 @@ export default function AdminPage() {
   const [customHoursEndTime, setCustomHoursEndTime] = useState<string>('16:00');
   const [breakStartTime, setBreakStartTime] = useState<string>('14:00');
   const [breakEndTime, setBreakEndTime] = useState<string>('16:00');
-  
+
   const [maxCalendarOpenDate, setMaxCalendarOpenDate] = useState<string>('');
   const [savingMaxDate, setSavingMaxDate] = useState(false);
+
+  // Presentational only: replaces the native alert() popups with an in-app toast.
+  const [toast, setToast] = useState<{ id: number; message: string; tone: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, tone: 'success' | 'error' = 'success') =>
+    setToast({ id: Date.now(), message, tone });
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  // Presentational only: drives the live "now" indicator on the timeline.
+  const [nowMinutes, setNowMinutes] = useState(() => {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+  });
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      setNowMinutes(d.getHours() * 60 + d.getMinutes());
+    };
+    const interval = setInterval(tick, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const todayStr = useMemo(() => {
     const d = new Date();
@@ -138,6 +394,11 @@ export default function AdminPage() {
     return new Date(year, month - 1, day).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
   };
 
+  const formatHeWeekday = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString('he-IL', { weekday: 'long' });
+  };
+
   const fetchData = async () => {
     const { data: b } = await supabase.from('bookings').select('*').neq('status', 'cancelled').order('date');
     const { data: bd } = await supabase.from('blocked_dates').select('*').order('date');
@@ -145,7 +406,7 @@ export default function AdminPage() {
     const { data: bts } = await supabase.from('blocked_time_slots').select('*').order('date');
     const { data: al } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(20);
     const { data: s } = await supabase.from('services').select('*').order('created_at', { ascending: true });
-    
+
     setBookings(b || []); 
     setBlockedDates(bd || []); 
     setDailySchedules(ds || []); 
@@ -178,10 +439,10 @@ export default function AdminPage() {
       }]);
       
       if (error) throw error;
-      alert('טווח פתיחת היומן ללקוחות עודכן בהצלחה! 🎉');
+      showToast('טווח פתיחת היומן ללקוחות עודכן בהצלחה! 🎉');
       fetchData();
     } catch (e) {
-      alert('שגיאה בעדכון טווח היומן.');
+      showToast('שגיאה בעדכון טווח היומן.', 'error');
     } finally {
       setSavingMaxDate(false);
     }
@@ -284,7 +545,7 @@ export default function AdminPage() {
 
       await fetchData();
     } catch (e) {
-      alert('שגיאה באישור התור במערכת');
+      showToast('שגיאה באישור התור במערכת', 'error');
     }
   };
 
@@ -295,7 +556,7 @@ export default function AdminPage() {
       if (error) throw error;
       await fetchData();
     } catch (e) {
-      alert('שגיאה בדחיית התור');
+      showToast('שגיאה בדחיית התור', 'error');
     }
   };
 
@@ -318,7 +579,7 @@ export default function AdminPage() {
   const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serviceForm.title || !serviceForm.price || !serviceForm.duration) {
-      alert('אנא מלאי את כל השדות בשירות.');
+      showToast('אנא מלאי את כל השדות בשירות.', 'error');
       return;
     }
 
@@ -345,7 +606,7 @@ export default function AdminPage() {
     }
 
     if (error) {
-      alert('שגיאה בשמירת השירות.');
+      showToast('שגיאה בשמירת השירות.', 'error');
     } else {
       setIsServiceModalOpen(false);
       fetchData();
@@ -355,7 +616,7 @@ export default function AdminPage() {
   const handleDeleteService = async (id: string) => {
     if (!confirm('האם את בטוחה שברצונך למחוק שירות זה? לקוחות לא יוכלו להזמין אותו יותר.')) return;
     const { error } = await supabase.from('services').delete().eq('id', id);
-    if (error) alert('לא ניתן למחוק את השירות.');
+    if (error) showToast('לא ניתן למחוק את השירות.', 'error');
     else fetchData();
   };
 
@@ -415,152 +676,429 @@ export default function AdminPage() {
   const futureSchedulesList = useMemo(() => dailySchedules.filter(ds => ds.date !== '2035-12-31' && ds.date >= todayStr && (ds.start_time !== '09:00' || ds.end_time !== '16:00')).sort((a,b) => a.date.localeCompare(b.date)), [dailySchedules, todayStr]);
   const futureBreaksList = useMemo(() => blockedTimeSlots.filter(bts => bts.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date)), [blockedTimeSlots, todayStr]);
 
+  // Read-only derivation for the live status banner. Reuses existing state only.
+  const todayStatus = useMemo(() => {
+    const closed = blockedDates.some(bd => bd.date === todayStr);
+    const schedule = dailySchedules.find(ds => ds.date === todayStr);
+    const opensAt = schedule ? schedule.start_time.slice(0, 5) : '09:00';
+    const closesAt = schedule ? schedule.end_time.slice(0, 5) : '16:00';
+    const openNow =
+      !closed && nowMinutes >= timeToMinutes(opensAt) && nowMinutes < timeToMinutes(closesAt);
+    const onBreak =
+      openNow &&
+      blockedTimeSlots.some(
+        bts =>
+          bts.date === todayStr &&
+          nowMinutes >= timeToMinutes(bts.start_time) &&
+          nowMinutes < timeToMinutes(bts.end_time)
+      );
+    const upcoming = bookings
+      .filter(
+        b =>
+          b.date === todayStr &&
+          b.status === 'confirmed' &&
+          b.customer_phone !== '0508917748' &&
+          timeToMinutes(b.start_time) >= nowMinutes
+      )
+      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    return { closed, opensAt, closesAt, openNow, onBreak, nextBooking: upcoming[0] ?? null };
+  }, [blockedDates, dailySchedules, blockedTimeSlots, bookings, todayStr, nowMinutes]);
+
   if (checkingAuth) return null;
   if (!session) return <LoginForm onLoginSuccess={() => fetchData()} />;
 
+  const selectedDateStr = toLocalDateString(selectedDate);
+  const isSelectedToday = selectedDateStr === todayStr;
+
+  const dayPickerModifiers = { hasBooking: bookingDateObjects, blocked: blockedDateObjects, partial: partialDateObjects, past: pastDates };
+  const dayPickerModifiersClassNames = { hasBooking: 'rdp-day_hasBooking', blocked: 'rdp-day_blocked', partial: 'rdp-day_partial', past: 'rdp-day_past' };
+
+  const NAV_TABS: { id: AdminTab; label: string; icon: any; badge?: number }[] = [
+    { id: 'daily', label: 'לו״ז', icon: Clock },
+    { id: 'approvals', label: 'בקשות', icon: Bell, badge: pendingApprovals.length },
+    { id: 'calendar', label: 'ניהול', icon: CalendarIcon },
+    { id: 'customers', label: 'לקוחות', icon: Users },
+    { id: 'services', label: 'שירותים', icon: Sparkles },
+    { id: 'activity', label: 'פעילות', icon: History },
+  ];
+
+  const calendarLegend = (
+    <div className={`mt-3 flex flex-wrap items-center justify-center gap-x-3.5 gap-y-1.5 border-t ${HAIRLINE} pt-3`}>
+      {[
+        { color: GOLD, label: 'תורים' },
+        { color: '#fca5a5', label: 'יום סגור' },
+        { color: '#fcd34d', label: 'מותאם' },
+      ].map(item => (
+        <div key={item.label} className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+          <span className="text-[8.5px] font-medium tracking-tight text-slate-400">{item.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <div dir="rtl" className="min-h-screen bg-[#FDFBF6] text-slate-800 font-sans text-right pb-24 selection:bg-[#c9a961]/10">
-      
+    <div dir="rtl" className="min-h-screen bg-[#FDFBF6] pb-24 text-right font-sans text-slate-800 selection:bg-[#c9a961]/15">
+
       <style jsx global>{`
-        .rdp { --rdp-accent-color: #c9a961; width: 100%; margin: 0; display: flex; justify-content: center; }
-        .rdp-day { border-radius: 12px; font-weight: 500; transition: all 0.2s; position: relative; }
-        .rdp-day_selected { background: #c9a961 !important; color: #fff !important; font-weight: 900 !important; box-shadow: 0 4px 12px rgba(201,169,97,0.3); }
-        .rdp-day_hasBooking::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background: #c9a961; border-radius: 50%; }
-        .rdp-day_blocked { background: #fee2e2 !important; color: #b91c1c !important; }
-        .rdp-day_partial { background: #fefce8 !important; color: #a16207 !important; }
-        .rdp-day_past { color: #cbd5e1 !important; pointer-events: auto; }
+        @keyframes adarFadeUp {
+          from { opacity: 0; transform: translateY(7px); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes adarPop {
+          from { opacity: 0; transform: scale(0.965); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes adarToastIn {
+          from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes adarSheetUp {
+          from { transform: translateY(100%); }
+          to   { transform: translateY(0); }
+        }
+        .anim-fade-up { animation: adarFadeUp .38s cubic-bezier(.22,1,.36,1) both; }
+        .anim-pop     { animation: adarPop .24s cubic-bezier(.22,1,.36,1) both; }
+        .anim-toast   { animation: adarToastIn .3s cubic-bezier(.22,1,.36,1) both; }
+        .anim-sheet   { animation: adarSheetUp .34s cubic-bezier(.22,1,.36,1) both; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* ---- react-day-picker v9 ---- */
+        .rdp-root {
+          --rdp-accent-color: ${GOLD};
+          --rdp-accent-background-color: #faf6ec;
+          --rdp-today-color: ${GOLD_DEEP};
+          --rdp-day-height: 34px;
+          --rdp-day-width: 34px;
+          --rdp-day_button-height: 32px;
+          --rdp-day_button-width: 32px;
+          --rdp-day_button-border-radius: 9999px;
+          --rdp-day_button-border: 1px solid transparent;
+          --rdp-selected-border: none;
+          --rdp-nav_button-height: 1.75rem;
+          --rdp-nav_button-width: 1.75rem;
+          --rdp-outside-opacity: 0.3;
+          margin: 0 auto;
+          font-feature-settings: 'tnum';
+        }
+        .rdp-months { justify-content: center; }
+        .rdp-month_caption {
+          font-weight: 600;
+          font-size: 0.8125rem;
+          letter-spacing: -0.01em;
+          color: #0f172a;
+        }
+        .rdp-weekday {
+          font-size: 0.5625rem;
+          font-weight: 500;
+          letter-spacing: -0.01em;
+          color: #cbd5e1;
+          padding: 0.3rem 0;
+        }
+        .rdp-day_button {
+          position: relative;
+          font-weight: 500;
+          font-size: 0.75rem;
+          letter-spacing: -0.01em;
+          transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+        }
+        .rdp-selected .rdp-day_button {
+          background: ${GOLD};
+          color: #fff;
+          font-weight: 600;
+          box-shadow: 0 4px 14px -2px rgba(201,169,97,.5);
+        }
+        .rdp-today:not(.rdp-selected) .rdp-day_button {
+          color: ${GOLD_DEEP};
+          font-weight: 700;
+        }
+        /* Radiant gold booking dot, kept clear of the circular day fill. */
+        .rdp-day_hasBooking:not(.rdp-selected) .rdp-day_button::after {
+          content: '';
+          position: absolute;
+          bottom: 1px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 4.5px;
+          height: 4.5px;
+          background: radial-gradient(circle, #e0c98a 0%, ${GOLD} 60%, ${GOLD_DEEP} 100%);
+          border-radius: 9999px;
+          box-shadow: 0 0 0 1.5px rgba(201,169,97,.18), 0 0 6px 1px rgba(201,169,97,.55);
+        }
+        /* Pastel block indicators. */
+        .rdp-day_blocked:not(.rdp-selected) .rdp-day_button {
+          background: #fee2e2;
+          color: #ef4444;
+          box-shadow: inset 0 0 0 1px rgba(239,68,68,.12);
+        }
+        .rdp-day_partial:not(.rdp-selected) .rdp-day_button {
+          background: #fef3c7;
+          color: #d97706;
+          box-shadow: inset 0 0 0 1px rgba(217,119,6,.12);
+        }
+        .rdp-day_past:not(.rdp-selected) .rdp-day_button {
+          color: #cbd5e1;
+        }
+        .rdp-chevron { fill: ${GOLD}; }
       `}</style>
 
-      <div className="sticky top-0 z-[100] bg-[#FDFBF6]/95 backdrop-blur-2xl px-4 pt-6 pb-3 border-b border-slate-200/40 shadow-sm">
-        <div className="max-w-2xl mx-auto flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white"><Activity size={18} /></div>
-            <div>
-              <h1 className="text-base font-serif italic text-slate-900 leading-none">Console</h1>
-              <p className="text-[10px] text-[#c9a961] font-black uppercase tracking-widest mt-1.5">אדר קוסמטיקס</p>
+      {/* ---------------- Toast ---------------- */}
+      {toast && (
+        <div key={toast.id} className="anim-toast pointer-events-none fixed inset-x-0 top-3 z-[300] flex justify-center px-4">
+          <div
+            className={`pointer-events-auto flex max-w-[22rem] items-center gap-2.5 rounded-[1.25rem] border px-4 py-3 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.2)] backdrop-blur-2xl ${
+              toast.tone === 'error'
+                ? 'border-red-900/[0.06] bg-red-50/90 text-red-700'
+                : 'border-emerald-900/[0.06] bg-emerald-50/90 text-emerald-800'
+            }`}
+          >
+            {toast.tone === 'error' ? <AlertTriangle size={15} className="shrink-0" /> : <CheckCheck size={15} className="shrink-0" />}
+            <p className="whitespace-pre-line text-[12px] font-medium leading-snug tracking-tight">{toast.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Sticky header + KPI strip ---------------- */}
+      <header className={`sticky top-0 z-[100] border-b ${HAIRLINE} bg-[#FDFBF6]/80 backdrop-blur-2xl`}>
+        <div className="mx-auto max-w-3xl px-3.5 pb-2.5 pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.75rem] bg-slate-900 text-white shadow-[0_2px_10px_-2px_rgba(15,23,42,0.4)]">
+                <Activity size={15} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">Console</h1>
+                <p className="mt-0.5 truncate text-[9px] font-medium tracking-tight text-slate-400">
+                  <span className="text-[#c9a961]">אדר קוסמטיקס</span>
+                  <span className="mx-1 text-slate-300">·</span>
+                  <span className="tabular-nums">{formatHeWeekday(todayStr)} {formatHeDate(todayStr)}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                onClick={() => setActiveTab('approvals')}
+                aria-label={`בקשות תורים (${pendingApprovals.length})`}
+                className={`relative flex h-9 w-9 items-center justify-center rounded-full border transition-all active:scale-90 ${
+                  pendingApprovals.length > 0
+                    ? 'border-amber-600/10 bg-amber-50/80 text-amber-500'
+                    : 'border-slate-900/[0.05] bg-white/70 text-slate-300'
+                }`}
+              >
+                <Bell size={15} />
+                {pendingApprovals.length > 0 && (
+                  <span className="absolute -left-0.5 -top-0.5 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-[#FDFBF6]">
+                    {pendingApprovals.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                aria-label="התנתקות"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-900/[0.05] bg-white/70 text-slate-300 transition-all hover:text-red-500 active:scale-90"
+              >
+                <LogOut size={15} />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setActiveTab('approvals')} 
-              className={`w-10 h-10 rounded-xl border flex items-center justify-center relative transition-all ${activeTab === 'approvals' ? 'bg-amber-500 border-amber-500 text-white shadow-md' : 'bg-white border-slate-200 text-slate-600'}`}
-            >
-              <Bell size={16} className={pendingApprovals.length > 0 ? 'animate-bounce' : ''} />
-              {pendingApprovals.length > 0 && (
-                <span className="absolute -top-1.5 -left-1.5 bg-red-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#FDFBF6]">
-                  {pendingApprovals.length}
+
+          {/* Two-tier bento: live operational banner over the metric grid. */}
+          <div className={`mt-2.5 overflow-hidden ${CARD}`}>
+            <div className={`flex items-center justify-between gap-2 border-b ${HAIRLINE} px-3 py-2.5`}>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                  {todayStatus.openNow && !todayStatus.onBreak && (
+                    <span className="absolute h-2 w-2 animate-ping rounded-full bg-emerald-400/70" />
+                  )}
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      todayStatus.closed
+                        ? 'bg-red-400'
+                        : todayStatus.onBreak
+                          ? 'bg-amber-400'
+                          : todayStatus.openNow
+                            ? 'bg-emerald-500'
+                            : 'bg-slate-300'
+                    }`}
+                  />
                 </span>
+                <p className="min-w-0 truncate text-[11.5px] font-semibold tracking-tight text-slate-700">
+                  {todayStatus.closed
+                    ? 'היום סגור'
+                    : todayStatus.onBreak
+                      ? 'בהפסקה'
+                      : todayStatus.openNow
+                        ? 'פתוח עכשיו'
+                        : 'מחוץ לשעות הפעילות'}
+                  <span className="mr-1.5 font-normal tabular-nums text-slate-400">
+                    {todayStatus.opensAt}–{todayStatus.closesAt}
+                  </span>
+                </p>
+              </div>
+
+              {todayStatus.nextBooking ? (
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[9px] font-medium tracking-tight text-slate-400">הבא</span>
+                  <span className="text-[12px] font-semibold leading-none tracking-tight tabular-nums text-[#b8964f]">
+                    {todayStatus.nextBooking.start_time.slice(0, 5)}
+                  </span>
+                </div>
+              ) : (
+                <span className="shrink-0 text-[9px] font-medium tracking-tight text-slate-300">אין תורים נוספים</span>
               )}
-            </button>
-            <button onClick={() => supabase.auth.signOut()} className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-300 hover:text-red-500 transition-colors"><LogOut size={16} /></button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5 p-1.5">
+              <MetricTile
+                label="היום"
+                value={bookings.filter(b => b.date === todayStr && b.status === 'confirmed').length}
+                icon={Clock}
+              />
+              <MetricTile
+                label="ממתינות"
+                value={pendingApprovals.length}
+                icon={Bell}
+                tone={pendingApprovals.length > 0 ? 'amber' : 'slate'}
+                onClick={() => setActiveTab('approvals')}
+              />
+              <MetricTile
+                label="חסימות"
+                value={futureBlockedList.length}
+                icon={XCircle}
+                tone={futureBlockedList.length > 0 ? 'red' : 'slate'}
+              />
+              <MetricTile label="לקוחות" value={customerBaseStats.totalActiveCount} icon={Users} tone="gold" />
+            </div>
           </div>
         </div>
-        
-        <div className="max-w-2xl mx-auto grid grid-cols-3 gap-3">
-          {activeTab === 'customers' ? (
-            <>
-              <StatCard title="מתמידות" value={customerBaseStats.loyalCustomers.length} icon={Star} color="gold" />
-              <StatCard title="מזדמנות" value={customerBaseStats.newCustomersCount} icon={Sparkles} color="blue" />
-              <StatCard title="סך הכל לקוחות" value={customerBaseStats.totalActiveCount} icon={Users} color="gold" />
-            </>
-          ) : activeTab === 'services' ? (
-            <>
-              <StatCard title="סך הכל טיפולים" value={dbServices.length} icon={Sparkles} color="gold" />
-              <StatCard title="זמן קצר ביותר" value={dbServices.length > 0 ? `${Math.min(...dbServices.map(s => s.duration_minutes))} דק'` : '0'} icon={Clock} color="blue" />
-              <StatCard title="שירותים באוויר" value={dbServices.length} icon={Activity} color="blue" />
-            </>
-          ) : (
-            <>
-              <StatCard title="היום" value={bookings.filter(b => b.date === todayStr && b.status === 'confirmed').length} icon={Clock} color="blue" />
-              <StatCard title="בקשות ממתינות" value={pendingApprovals.length} icon={Bell} color={pendingApprovals.length > 0 ? 'red' : 'gold'} />
-              <StatCard title="חסימות" value={blockedDates.filter(bd => bd.date >= todayStr).length} icon={XCircle} color="red" />
-            </>
-          )}
-        </div>
-      </div>
+      </header>
 
-      <main className="max-w-2xl mx-auto px-4 mt-6">
-        
+      <main className="mx-auto mt-3 max-w-3xl space-y-3 px-3.5">
+
+        {/* ======================= APPROVALS ======================= */}
         {activeTab === 'approvals' && (
-          <div className="space-y-5 animate-in fade-in duration-500">
-            <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-2.5 mb-2 border-b border-slate-100 pb-4">
-                <Bell size={18} className="text-amber-500" />
-                <h2 className="text-xs font-black uppercase tracking-widest text-slate-900">אישור בקשות תורים ממתינות ({pendingApprovals.length})</h2>
-              </div>
-              <p className="text-[10px] text-slate-400 mb-4">תורים אלו תופסים את השעה ביומן של הלקוחות, אך לא יירשמו ביומן של אדר עד שלא יאושרו סופית.</p>
-              
-              <div className="space-y-3">
-                {pendingApprovals.length === 0 ? (
-                  <p className="text-xs text-slate-300 text-center py-12">אין בקשות תורים הממתינות לאישור כרגע.</p>
-                ) : (
-                  pendingApprovals.map(app => (
-                    <div key={app.id} className="bg-white border-2 border-dashed border-amber-200 bg-amber-50/20 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-right">
-                      <div className="text-right flex-1">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <h4 className="font-bold text-slate-900 text-sm leading-none">{app.customer_name}</h4>
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded bg-amber-100 text-amber-700 uppercase">ממתין</span>
+          <div className="anim-fade-up space-y-3">
+            <section className={`${CARD} p-4`}>
+              <SectionHeader
+                icon={Bell}
+                title={`בקשות ממתינות לאישור (${pendingApprovals.length})`}
+                description="תורים אלו תופסים את השעה ביומן של הלקוחות, אך לא יירשמו ביומן של אדר עד שלא יאושרו סופית."
+                accent="#f59e0b"
+              />
+
+              {pendingApprovals.length === 0 ? (
+                <EmptyState icon={Inbox} title="הכל מעודכן" description="אין בקשות תורים הממתינות לאישור כרגע." />
+              ) : (
+                <div className="space-y-2">
+                  {pendingApprovals.map((app, index) => (
+                    <div
+                      key={app.id}
+                      style={{ animationDelay: `${Math.min(index, 10) * 40}ms` }}
+                      className="anim-fade-up rounded-3xl border border-amber-400/40 bg-white/85 p-3.5 text-right shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="truncate font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">{app.customer_name}</h4>
+                            <StatusChip status="pending" />
+                          </div>
+                          <p className="mt-1 truncate text-[11px] font-medium tracking-tight text-[#b8964f]">{app.service_title}</p>
                         </div>
-                        <p className="text-xs font-black text-[#b8964f] mb-1">{app.service_title}</p>
-                        <p className="text-[10px] text-slate-400 font-bold tabular-nums">
-                          {formatHeDate(app.date)} • שעה: {app.start_time.slice(0,5)} - {app.end_time.slice(0,5)} • טל': {app.customer_phone}
-                        </p>
+                        <div className={`shrink-0 border-r ${HAIRLINE} pr-3 text-center`}>
+                          <span className="block text-[19px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">{app.start_time.slice(0,5)}</span>
+                          <span className="mt-1 block text-[9px] font-medium tracking-tight tabular-nums text-slate-400">
+                            {formatHeWeekday(app.date)} · {formatHeDate(app.date)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex gap-2 w-full md:w-auto justify-end">
-                        <button onClick={() => handleApproveBooking(app)} className="bg-emerald-600 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all">
-                          <CheckCircle2 size={14} /> אישור תור
+
+                      <div className={`mt-3 flex items-center gap-1.5 border-t ${HAIRLINE} pt-3`}>
+                        <button
+                          onClick={() => handleApproveBooking(app)}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-emerald-600 py-2.5 text-[11.5px] font-semibold tracking-tight text-white shadow-[0_2px_10px_-2px_rgba(5,150,105,0.5)] transition-all active:scale-95"
+                        >
+                          <CheckCircle2 size={13} /> אישור ושליחת SMS
                         </button>
-                        <button onClick={() => handleRejectBooking(app)} className="bg-red-50 text-red-600 border border-red-100 font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 active:scale-95 transition-all">
-                          <X size={14} /> דחייה
+                        <button
+                          onClick={() => handleRejectBooking(app)}
+                          aria-label="דחיית הבקשה"
+                          className="flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-red-50/80 px-4 py-2.5 text-[11.5px] font-semibold tracking-tight text-red-500 ring-1 ring-inset ring-red-600/10 transition-all active:scale-95"
+                        >
+                          <X size={13} /> דחייה
                         </button>
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
-        
+
+        {/* ======================= DAILY ======================= */}
         {activeTab === 'daily' && (
-          <div className="space-y-5 animate-in fade-in duration-500">
-            <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl p-4 rounded-3xl border border-white/40 shadow-sm">
-              <button onClick={() => changeDay(-1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronRight size={20}/></button>
-              <div className="text-center cursor-pointer px-6 flex-1" onClick={() => setIsQuickCalendarOpen(true)}>
-                <p className="text-[10px] font-black text-[#c9a961] uppercase tracking-[0.2em] mb-1">בחרי תאריך</p>
-                <h2 className="text-base font-serif italic text-slate-900 flex items-center justify-center gap-1">
-                  {formatHeDate(toLocalDateString(selectedDate))}
-                </h2>
-              </div>
-              <button onClick={() => changeDay(1)} className="p-2.5 bg-[#FDFBF6] rounded-xl text-slate-400 active:scale-90 transition-all"><ChevronLeft size={20}/></button>
+          <div className="anim-fade-up space-y-3">
+            {/* Day navigator */}
+            <div className={`${CARD} flex items-center justify-between gap-1.5 p-2`}>
+              <button
+                onClick={() => changeDay(-1)}
+                aria-label="היום הקודם"
+                className={`${ACTION_CIRCLE} h-9 w-9 bg-slate-100/60 text-slate-400`}
+              >
+                <ChevronRight size={17} />
+              </button>
+
+              <button
+                onClick={() => setIsQuickCalendarOpen(true)}
+                className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-2 py-1.5 transition-all active:scale-95 active:bg-slate-100/50"
+              >
+                <span className="font-playfair text-[17px] italic leading-none tracking-tight text-slate-900">{formatHeDate(selectedDateStr)}</span>
+                <span className="truncate text-[10px] font-medium tracking-tight text-slate-400">
+                  {formatHeWeekday(selectedDateStr)}
+                </span>
+                {isSelectedToday && <Badge tone="gold">היום</Badge>}
+                <Badge tone="slate">{dailyBookings.length}</Badge>
+              </button>
+
+              {!isSelectedToday && (
+                <button
+                  onClick={() => setSelectedDate(new Date())}
+                  aria-label="חזרה להיום"
+                  className={`${ACTION_CIRCLE} h-9 w-9 bg-[#c9a961]/10 text-[#b8964f]`}
+                >
+                  <CalendarDays size={15} />
+                </button>
+              )}
+
+              <button
+                onClick={() => changeDay(1)}
+                aria-label="היום הבא"
+                className={`${ACTION_CIRCLE} h-9 w-9 bg-slate-100/60 text-slate-400`}
+              >
+                <ChevronLeft size={17} />
+              </button>
             </div>
 
-            {isQuickCalendarOpen && (
-              <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsQuickCalendarOpen(false)}>
-                <div className="bg-white/95 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white/60 shadow-2xl text-center max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">ניווט מהיר ביומן</span>
-                    <button onClick={() => setIsQuickCalendarOpen(false)} className="bg-slate-100 p-1.5 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                      <X size={16} />
-                    </button>
+            {/* Timeline */}
+            <div className={`${CARD} min-h-[300px] p-3`}>
+              {isFullBlocked ? (
+                <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50/70 text-red-400 ring-1 ring-inset ring-red-600/10">
+                    <Lock size={22} />
                   </div>
-                  <DayPicker
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={(d) => { if (d) { setSelectedDate(d); setIsQuickCalendarOpen(false); } }}
-                    modifiers={{ hasBooking: bookingDateObjects, blocked: blockedDateObjects, partial: partialDateObjects, past: pastDates }}
-                    modifiersClassNames={{ hasBooking: 'rdp-day_hasBooking', blocked: 'rdp-day_blocked', partial: 'rdp-day_partial', past: 'rdp-day_past' }}
-                  />
+                  <div>
+                    <p className="font-playfair text-[17px] italic tracking-tight text-slate-600">היום חסום במלואו</p>
+                    <p className="mt-1 text-[10.5px] font-normal tracking-tight text-slate-400">לקוחות אינן יכולות לקבוע תורים בתאריך זה.</p>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            <div className="bg-white/60 backdrop-blur-2xl rounded-[2.5rem] p-5 border border-white/40 shadow-sm min-h-[500px]">
-              <div className="space-y-3.5">
-                {isFullBlocked ? (
-                  <div className="py-24 text-center opacity-20 flex flex-col items-center gap-5 text-right"><Lock size={48}/><p className="text-sm uppercase tracking-widest font-black">יום חסום מלא</p></div>
-                ) : (
-                  timeSlots.map(time => {
+              ) : (
+                /* Continuous vertical time track: one hairline running behind every slot. */
+                <div className="relative space-y-1 before:absolute before:inset-y-1.5 before:right-9 before:w-px before:bg-slate-900/[0.06] before:content-['']">
+                  {timeSlots.map(time => {
                     const currentMinutes = timeToMinutes(time);
                     let isOutsideWorkHours = false;
                     if (currentDaySchedule) {
@@ -571,446 +1109,732 @@ export default function AdminPage() {
                     const isBreak = currentDayBreaks.some(bts => currentMinutes >= timeToMinutes(bts.start_time) && currentMinutes < timeToMinutes(bts.end_time));
                     const booking = dailyBookings.find(b => currentMinutes >= timeToMinutes(b.start_time) && currentMinutes < timeToMinutes(b.end_time));
                     if (booking && time !== booking.start_time.slice(0,5)) return null;
-                    if (isOutsideWorkHours && !booking) return null;
+
+                    const rowEndMinutes = booking ? timeToMinutes(booking.end_time) : currentMinutes + 30;
+                    const showNow = isSelectedToday && nowMinutes >= currentMinutes && nowMinutes < rowEndMinutes;
+
+                    /* Real-time marker: radiant gold dot seated on the time track. */
+                    const nowIndicator = showNow ? (
+                      <div className="relative z-10 mb-1 flex items-center gap-2" aria-hidden="true">
+                        <div className="w-8 shrink-0 text-[9.5px] font-semibold leading-none tracking-tight tabular-nums text-[#b8964f]">
+                          {minutesToTime(nowMinutes)}
+                        </div>
+                        <div className="flex flex-1 items-center gap-1.5">
+                          <span className="-mr-2 h-2 w-2 shrink-0 rounded-full bg-[#c9a961] shadow-[0_0_0_3px_rgba(201,169,97,0.18),0_0_10px_2px_rgba(201,169,97,0.45)]" />
+                          <span className="h-px flex-1 bg-gradient-to-l from-[#c9a961]/70 via-[#c9a961]/25 to-transparent" />
+                          <span className="text-[8.5px] font-semibold tracking-tight text-[#b8964f]">עכשיו</span>
+                        </div>
+                      </div>
+                    ) : null;
+
+                    // Closed slot — inset textured well with a mini status chip.
+                    if (isOutsideWorkHours && !booking) {
+                      return (
+                        <div key={time} className="relative">
+                          {nowIndicator}
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 shrink-0 text-[9.5px] font-medium leading-none tracking-tight tabular-nums text-slate-300">{time}</div>
+                            <div className={`flex h-8 flex-1 items-center justify-between px-3 ${INSET}`}>
+                              <span className="flex items-center gap-1.5 text-[9.5px] font-medium tracking-tight text-slate-400">
+                                <MoonStar size={10} /> מחוץ לשעות הפעילות
+                              </span>
+                              <Badge tone="slate">סגור</Badge>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
-                      <div key={time} className="flex gap-4 items-start">
-                        <div className="w-12 pt-3.5 text-[10px] font-black text-slate-300 tabular-nums">{time}</div>
-                        <div className="flex-1">
-                          {booking ? (
-                            <div className={`bg-white border rounded-[1.5rem] p-4 flex justify-between items-center shadow-sm relative overflow-hidden text-right ${booking.status === 'pending' ? 'border-dashed border-amber-300 bg-amber-50/10' : 'border-slate-100'}`}>
-                              <div className={`absolute right-0 top-0 bottom-0 w-1 ${booking.status === 'pending' ? 'bg-amber-400' : 'bg-[#c9a961]'}`}></div>
-                              <div className="text-right">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-bold text-slate-900 text-sm leading-none">{booking.customer_name}</h4>
-                                  {booking.status === 'pending' && <span className="text-[8px] font-black text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded uppercase animate-pulse">ממתין לאישור</span>}
+                      <div key={time} className="relative">
+                        {nowIndicator}
+                        <div className="flex items-stretch gap-2">
+                          <div className="w-8 shrink-0 pt-3 text-[9.5px] font-medium leading-none tracking-tight tabular-nums text-slate-400">{time}</div>
+                          <div className="min-w-0 flex-1">
+                            {booking ? (
+                              /* Boarding-pass ticket: time stub, perforation, then details. */
+                              <div
+                                className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-white/85 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ${
+                                  booking.status === 'pending' ? 'border-amber-400/40' : 'border-[#c9a961]/30'
+                                }`}
+                              >
+                                <div
+                                  className={`flex w-[4.5rem] shrink-0 flex-col items-center justify-center px-1.5 py-3 ${
+                                    booking.status === 'pending' ? 'bg-amber-400/[0.07]' : 'bg-[#c9a961]/[0.07]'
+                                  }`}
+                                >
+                                  <span className="text-[18px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">
+                                    {booking.start_time.slice(0,5)}
+                                  </span>
+                                  <span className="mt-1 text-[9.5px] font-medium leading-none tracking-tight tabular-nums text-slate-400">
+                                    {booking.end_time.slice(0,5)}
+                                  </span>
+                                  <span className="mt-1.5 text-[8.5px] font-medium leading-none tracking-tight tabular-nums text-[#b8964f]">
+                                    {timeToMinutes(booking.end_time) - timeToMinutes(booking.start_time)} דק'
+                                  </span>
                                 </div>
-                                <p className="text-[9px] text-[#b8964f] font-black uppercase tracking-widest">{booking.service_title}</p>
+
+                                {/* Perforated seam with punched notches. */}
+                                <div
+                                  className={`relative w-0 border-r border-dashed ${
+                                    booking.status === 'pending' ? 'border-amber-400/40' : 'border-[#c9a961]/30'
+                                  }`}
+                                >
+                                  <span className="absolute -right-[0.3125rem] -top-[0.3125rem] h-2.5 w-2.5 rounded-full bg-[#FDFBF6]" />
+                                  <span className="absolute -bottom-[0.3125rem] -right-[0.3125rem] h-2.5 w-2.5 rounded-full bg-[#FDFBF6]" />
+                                </div>
+
+                                <div className="min-w-0 flex-1 px-3 py-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <h4 className="min-w-0 flex-1 truncate text-[16px] font-semibold not-italic leading-tight tracking-tight text-slate-900">
+                                      {booking.customer_name}
+                                    </h4>
+                                    <StatusChip status={booking.status} />
+                                  </div>
+                                  <p className="mt-0.5 truncate text-[11px] font-medium not-italic leading-tight tracking-tight text-[#b8964f]">{booking.service_title}</p>
+
+                                  <div className={`mt-2 flex gap-1.5 border-t ${HAIRLINE} pt-2`}>
+                                    {booking.status === 'pending' && (
+                                      <button
+                                        onClick={() => handleApproveBooking(booking)}
+                                        className={`${ACTION_CIRCLE} bg-emerald-50/80 text-emerald-600 ring-1 ring-inset ring-emerald-600/10`}
+                                        aria-label="אישור מהיר"
+                                        title="אישור מהיר"
+                                      >
+                                        <CheckCircle2 size={13} />
+                                      </button>
+                                    )}
+                                    <a
+                                      href={`tel:${booking.customer_phone}`}
+                                      className={`${ACTION_CIRCLE} bg-slate-100/70 text-slate-500 ring-1 ring-inset ring-slate-600/[0.06]`}
+                                      aria-label="חיוג ללקוחה"
+                                      title="חיוג"
+                                    >
+                                      <Phone size={13} />
+                                    </a>
+                                    <button
+                                      onClick={() => window.open(`https://wa.me/972${booking.customer_phone.replace(/^0/, '')}`)}
+                                      className={`${ACTION_CIRCLE} bg-green-50/80 text-green-600 ring-1 ring-inset ring-green-600/10`}
+                                      aria-label="וואטסאפ ללקוחה"
+                                      title="וואטסאפ"
+                                    >
+                                      <MessageCircle size={13} />
+                                    </button>
+                                    <button
+                                      onClick={async () => { if (confirm('ביטול תור?')) { await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id); fetchData(); } }}
+                                      className={`${ACTION_CIRCLE} bg-red-50/80 text-red-400 ring-1 ring-inset ring-red-600/10`}
+                                      aria-label="ביטול תור"
+                                      title="ביטול תור"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex gap-1.5">
-                                {booking.status === 'pending' && (
-                                  <button onClick={() => handleApproveBooking(booking)} className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center transition-transform active:scale-90" title="אישור מהיר"><CheckCircle2 size={14}/></button>
-                                )}
-                                <a href={`tel:${booking.customer_phone}`} className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400"><Phone size={14}/></a>
-                                <button onClick={() => window.open(`https://wa.me/972${booking.customer_phone.replace(/^0/, '')}`)} className="w-8 h-8 bg-green-50/50 rounded-lg flex items-center justify-center text-green-600/60"><MessageCircle size={14}/></button>
-                                <button onClick={async () => { if (confirm('ביטול תור?')) { await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', booking.id); fetchData(); } }} className="w-8 h-8 bg-red-50/50 rounded-lg flex items-center justify-center text-red-400/60"><Trash2 size={14}/></button>
+                            ) : isBreak ? (
+                              <div className={`flex h-11 items-center justify-between px-3 ${INSET} border-amber-300/50 bg-amber-400/[0.06]`}>
+                                <span className="flex items-center gap-1.5 text-[10.5px] font-medium tracking-tight text-amber-700/80">
+                                  <Hand size={11} /> הפסקה מוגדרת
+                                </span>
+                                <Badge tone="amber">הפסקה</Badge>
                               </div>
-                            </div>
-                          ) : isBreak ? (
-                            <div className="h-12 bg-amber-50/40 border border-amber-100/50 rounded-2xl flex items-center px-5 text-amber-600/50 text-[10px] font-black uppercase tracking-widest gap-2.5">
-                                <Hand size={12} /> הפסקה מוגדרת
-                            </div>
-                          ) : (
-                            <div className="h-12 border border-dashed border-slate-200/60 rounded-2xl flex items-center px-5 text-slate-200 text-[10px] font-bold uppercase tracking-widest">פנוי</div>
-                          )}
+                            ) : (
+                              <div className="flex h-11 items-center rounded-2xl border border-dashed border-slate-200 px-3 text-[10.5px] font-medium tracking-tight text-slate-300 transition-colors hover:border-[#c9a961]/40 hover:text-[#b8964f]">
+                                פנוי
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
 
+        {/* ======================= CALENDAR ======================= */}
         {activeTab === 'calendar' && (
-          <div className="space-y-5 animate-in fade-in duration-500">
-            {/* רכיב בחירת תאריך סגירה דינמי - מתוקן ל-2035 */}
-            <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-2.5 mb-5 text-right"><Eye size={15} className="text-[#c9a961]" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">טווח פתיחת יומן ללקוחות</h2></div>
-              <p className="text-[9px] text-slate-400 mb-4 leading-tight">הגדירי עד איזה תאריך היומן יהיה פתוח לקביעת תורים. כל תאריך מעבר ליום שנבחר ייחסם אוטומטית ללקוחות.</p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input 
-                  type="date" 
-                  min={todayStr}
-                  value={maxCalendarOpenDate} 
-                  onChange={e => setMaxCalendarOpenDate(e.target.value)} 
-                  className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold tabular-nums" 
+          <div className="anim-fade-up space-y-3">
+            <div className="flex gap-1.5">
+              <MiniStat label="ימים סגורים" value={futureBlockedList.length} />
+              <MiniStat label="הפסקות" value={futureBreaksList.length} />
+              <MiniStat label="מותאמים" value={futureSchedulesList.length} />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <section className={`${CARD} p-4`}>
+                <SectionHeader icon={CalendarIcon} title="ניהול יומן" description="בחרי תאריך כדי לערוך את מסגרת היום, ההפסקות והחסימות." />
+                <DayPicker
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(d) => d && setSelectedDate(d)}
+                  modifiers={dayPickerModifiers}
+                  modifiersClassNames={dayPickerModifiersClassNames}
                 />
-                <button 
-                  onClick={handleUpdateMaxCalendarDate} 
-                  disabled={savingMaxDate}
-                  className="py-4 px-6 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all"
+                {calendarLegend}
+                <button
+                  onClick={async () => {
+                    const dStr = toLocalDateString(selectedDate);
+                    const existing = blockedDates.find(d => d.date === dStr);
+                    if (existing) await supabase.from('blocked_dates').delete().eq('date', dStr);
+                    else await supabase.from('blocked_dates').insert([{ date: dStr }]);
+                    fetchData();
+                  }}
+                  className={`mt-3 w-full rounded-2xl py-3 text-[12px] font-semibold tracking-tight ring-1 ring-inset transition-all active:scale-95 ${
+                    isFullBlocked
+                      ? 'bg-emerald-50/80 text-emerald-600 ring-emerald-600/10'
+                      : 'bg-red-50/80 text-red-500 ring-red-600/10'
+                  }`}
                 >
-                  {savingMaxDate ? 'מעדכן...' : 'עדכון תאריך סגירה'}
+                  סגירה / פתיחה של יום מלא
+                </button>
+              </section>
+
+              <div className="space-y-3">
+                <section className={`${CARD} p-4`}>
+                  <SectionHeader
+                    icon={Sliders}
+                    title="מסגרת יום מותאמת"
+                    description="הגדרת פתיחה וסגירה. ברירת מחדל: 09:00 - 16:00."
+                    accent="#f59e0b"
+                  />
+                  <div className="flex gap-2">
+                    <input type="time" aria-label="שעת פתיחה" value={customHoursStartTime} onChange={e => setCustomHoursStartTime(e.target.value)} className={INPUT} />
+                    <input type="time" aria-label="שעת סגירה" value={customHoursEndTime} onChange={e => setCustomHoursEndTime(e.target.value)} className={INPUT} />
+                  </div>
+                  <button
+                    onClick={async () => { 
+                      await supabase.from('daily_schedules').upsert({ date: toLocalDateString(selectedDate), start_time: customHoursStartTime, end_time: customHoursEndTime }); 
+                      fetchData(); 
+                      showToast('מסגרת העבודה עודכנה בהצלחה! 🎉');
+                    }}
+                    className={`mt-2 ${BTN_DARK}`}
+                  >
+                    עדכון מסגרת עבודה
+                  </button>
+                  {dailySchedules.some(ds => ds.date === toLocalDateString(selectedDate)) && (
+                    <button
+                      onClick={async () => { 
+                        await supabase.from('daily_schedules').delete().eq('date', toLocalDateString(selectedDate)); 
+                        fetchData(); 
+                        showToast('היום הוחזר לשעות ברירת המחדל (09:00-16:00) בהצלחה! ✨');
+                      }}
+                      className="mt-1.5 w-full rounded-2xl bg-red-50/80 py-2.5 text-[11.5px] font-medium tracking-tight text-red-500 ring-1 ring-inset ring-red-600/10 transition-all active:scale-95"
+                    >
+                      חזרה לשעות ברירת מחדל (09:00-16:00)
+                    </button>
+                  )}
+                </section>
+
+                <section className={`${CARD} p-4`}>
+                  <SectionHeader icon={Hand} title="הוספת הפסקה" description="לקוחות לא יוכלו קבוע תורים בשעות אלו." accent="#f59e0b" />
+                  <div className="flex gap-2">
+                    <input type="time" aria-label="תחילת הפסקה" value={breakStartTime} onChange={e => setBreakStartTime(e.target.value)} className={INPUT} />
+                    <input type="time" aria-label="סיום הפסקה" value={breakEndTime} onChange={e => setBreakEndTime(e.target.value)} className={INPUT} />
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await supabase.from('blocked_time_slots').insert({ date: toLocalDateString(selectedDate), start_time: breakStartTime, end_time: breakEndTime });
+                      fetchData();
+                    }}
+                    className={`mt-2 ${BTN_GOLD}`}
+                  >
+                    הוסף הפסקה ביום זה
+                  </button>
+                </section>
+              </div>
+            </div>
+
+            <section className={`${CARD} p-4`}>
+              <SectionHeader
+                icon={Eye}
+                title="טווח פתיחת יומן ללקוחות"
+                description="הגדירי עד איזה תאריך היומן יהיה פתוח לקביעת תורים. כל תאריך מעבר ליום שנבחר ייחסם אוטומטית ללקוחות."
+              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  aria-label="תאריך סגירת היומן"
+                  min={todayStr}
+                  value={maxCalendarOpenDate}
+                  onChange={e => setMaxCalendarOpenDate(e.target.value)}
+                  className={`${INPUT} flex-1`}
+                />
+                <button
+                  onClick={handleUpdateMaxCalendarDate}
+                  disabled={savingMaxDate}
+                  className="flex shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-5 py-2.5 text-[12px] font-semibold tracking-tight text-white shadow-[0_2px_10px_-2px_rgba(15,23,42,0.35)] transition-all active:scale-95 disabled:opacity-60"
+                >
+                  {savingMaxDate && <Loader2 size={13} className="animate-spin" />}
+                  {savingMaxDate ? 'מעדכן...' : 'עדכון'}
                 </button>
               </div>
-            </div>
+            </section>
 
-            <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-center">
-              <div className="flex items-center justify-center gap-2.5 mb-5"><CalendarIcon size={16} className="text-[#c9a961]"/><h2 className="text-xs font-bold uppercase tracking-widest">ניהול יומן</h2></div>
-              <DayPicker mode="single" selected={selectedDate} onSelect={(d) => d && setSelectedDate(d)} modifiers={{ hasBooking: bookingDateObjects, blocked: blockedDateObjects, partial: partialDateObjects, past: pastDates }} modifiersClassNames={{ hasBooking: 'rdp-day_hasBooking', blocked: 'rdp-day_blocked', partial: 'rdp-day_partial', past: 'rdp-day_past' }} />
-              <button onClick={async () => {
-                const dStr = toLocalDateString(selectedDate);
-                const existing = blockedDates.find(d => d.date === dStr);
-                if (existing) await supabase.from('blocked_dates').delete().eq('date', dStr);
-                else await supabase.from('blocked_dates').insert([{ date: dStr }]);
-                fetchData();
-              }} className="w-full mt-6 py-4 bg-red-50 text-red-600 rounded-2xl border border-red-100 font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">סגירה / פתיחה של יום מלא</button>
-            </div>
-
-            <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-2.5 mb-5 text-right"><Hand size={15} className="text-[#c9a961]" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">הוספת הפסקה (חסימת שעות)</h2></div>
-              <p className="text-[9px] text-slate-400 mb-4 leading-tight">לקוחות לא יוכלו קבוע תורים בשעות אלו.</p>
-              <div className="flex flex-col gap-3">
-                <div className="flex gap-3 text-right">
-                  <input type="time" value={breakStartTime} onChange={e => setBreakStartTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
-                  <input type="time" value={breakEndTime} onChange={e => setBreakEndTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
-                </div>
-                <button onClick={async () => {
-                    await supabase.from('blocked_time_slots').insert({ date: toLocalDateString(selectedDate), start_time: breakStartTime, end_time: breakEndTime });
-                    fetchData();
-                }} className="w-full py-4 bg-[#c9a961] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">הוסף הפסקה ביום זה</button>
-              </div>
-            </div>
-
-            <div className="bg-white/80 backdrop-blur-xl p-6 md:p-10 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-2.5 mb-5 text-right"><Sliders size={15} className="text-amber-500" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">מסגרת יום מותאמת</h2></div>
-              <p className="text-[9px] text-slate-400 mb-4 leading-tight">הגדרת פתיחה וסגירה. ברירת מחדל: 09:00 - 16:00.</p>
-              <div className="flex flex-col gap-3">
-                <div className="flex gap-3 text-right">
-                  <input type="time" value={customHoursStartTime} onChange={e => setCustomHoursStartTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
-                  <input type="time" value={customHoursEndTime} onChange={e => setCustomHoursEndTime(e.target.value)} className="flex-1 bg-[#FDFBF6] border border-slate-100 rounded-xl p-3 text-center outline-none text-sm font-bold" />
-                </div>
-                <button onClick={async () => { 
-                  await supabase.from('daily_schedules').upsert({ date: toLocalDateString(selectedDate), start_time: customHoursStartTime, end_time: customHoursEndTime }); 
-                  fetchData(); 
-                  alert('מסגרת העבודה עודכנה בהצלחה! 🎉');
-                }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all">עדכון מסגרת עבודה</button>
-                
-                {dailySchedules.some(ds => ds.date === toLocalDateString(selectedDate)) && (
-                  <button 
-                    onClick={async () => { 
-                      await supabase.from('daily_schedules').delete().eq('date', toLocalDateString(selectedDate)); 
-                      fetchData(); 
-                      alert('היום הוחזר לשעות ברירת המחדל (09:00-16:00) בהצלחה! ✨');
-                    }} 
-                    className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-2xl font-bold text-[10px] uppercase tracking-widest active:scale-95 transition-all mt-1"
-                  >
-                    חזרה לשעות ברירת מחדל (09:00-16:00)
-                  </button>
+            <section className={`${CARD} p-4`}>
+              <SectionHeader icon={AlertTriangle} title="פירוט חסימות והפסקות" accent="#475569" />
+              <div className="max-h-[260px] space-y-1.5 overflow-y-auto pl-0.5">
+                {[...futureBlockedList, ...futureSchedulesList, ...futureBreaksList].length === 0 && (
+                  <EmptyState icon={CalendarDays} title="היומן פנוי" description="אין חסימות או הפסקות עתידיות." />
                 )}
-              </div>
-            </div>
 
-            <div className="bg-white/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-3 mb-5"><AlertTriangle size={16} className="text-slate-700" /><h2 className="text-[10px] font-black uppercase tracking-widest text-slate-700">פירוט חסימות והפסקות</h2></div>
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                {[...futureBlockedList, ...futureSchedulesList, ...futureBreaksList].length === 0 ? <p className="text-xs text-slate-300 text-center py-6">אין חסימות או הפסקות עתידיות</p> : null}
-                
                 {futureBlockedList.map(bd => (
-                  <div key={bd.date} className="flex justify-between items-center p-4 bg-red-50/50 rounded-xl border border-red-100/50">
-                    <span className="text-xs font-bold text-red-800">{formatHeDate(bd.date)} <span className="text-[9px] ml-2 opacity-50 uppercase">יום סגור מלא</span></span>
-                    <button onClick={async () => { await supabase.from('blocked_dates').delete().eq('date', bd.date); fetchData(); }} className="text-red-300"><X size={14}/></button>
+                  <div key={bd.date} className="flex items-center justify-between gap-2 rounded-2xl bg-red-50/50 px-3 py-2.5 ring-1 ring-inset ring-red-600/[0.08]">
+                    <span className="flex min-w-0 items-center gap-2 truncate">
+                      <span className="text-[12px] font-semibold tracking-tight tabular-nums text-red-700">{formatHeDate(bd.date)}</span>
+                      <span className="truncate text-[10px] font-normal tracking-tight text-red-400">יום סגור מלא</span>
+                    </span>
+                    <button
+                      onClick={async () => { await supabase.from('blocked_dates').delete().eq('date', bd.date); fetchData(); }}
+                      aria-label="הסרת חסימה"
+                      className={`${ACTION_CIRCLE} h-6 w-6 bg-red-100/60 text-red-400`}
+                    >
+                      <X size={12}/>
+                    </button>
                   </div>
                 ))}
 
                 {futureSchedulesList.map(ds => (
-                  <div key={ds.date} className="flex justify-between items-center p-4 bg-slate-50/50 rounded-xl border border-slate-100/50">
-                    <span className="text-xs font-bold text-slate-800">{formatHeDate(ds.date)} <span className="text-[9px] ml-2 opacity-50 uppercase">מסגרת: {ds.start_time.slice(0,5)}-{ds.end_time.slice(0,5)}</span></span>
-                    <button onClick={async () => { await supabase.from('daily_schedules').delete().eq('date', ds.date); fetchData(); }} className="text-slate-300"><X size={14}/></button>
+                  <div key={ds.date} className="flex items-center justify-between gap-2 rounded-2xl bg-slate-100/40 px-3 py-2.5 ring-1 ring-inset ring-slate-600/[0.06]">
+                    <span className="flex min-w-0 items-center gap-2 truncate">
+                      <span className="text-[12px] font-semibold tracking-tight tabular-nums text-slate-700">{formatHeDate(ds.date)}</span>
+                      <span className="truncate text-[10px] font-normal tracking-tight tabular-nums text-slate-400">
+                        מסגרת {ds.start_time.slice(0,5)}–{ds.end_time.slice(0,5)}
+                      </span>
+                    </span>
+                    <button
+                      onClick={async () => { await supabase.from('daily_schedules').delete().eq('date', ds.date); fetchData(); }}
+                      aria-label="הסרת מסגרת מותאמת"
+                      className={`${ACTION_CIRCLE} h-6 w-6 bg-slate-200/60 text-slate-400`}
+                    >
+                      <X size={12}/>
+                    </button>
                   </div>
                 ))}
 
                 {futureBreaksList.map(bts => (
-                  <div key={bts.id} className="flex justify-between items-center p-4 bg-amber-50/50 rounded-xl border border-amber-100/50">
-                    <span className="text-xs font-bold text-amber-800">{formatHeDate(bts.date)} <span className="text-[9px] ml-2 opacity-50 uppercase">הפסקה: {bts.start_time.slice(0,5)}-{bts.end_time.slice(0,5)}</span></span>
-                    <button onClick={async () => { await supabase.from('blocked_time_slots').delete().eq('id', bts.id); fetchData(); }} className="text-amber-400"><X size={14}/></button>
+                  <div key={bts.id} className="flex items-center justify-between gap-2 rounded-2xl bg-amber-50/50 px-3 py-2.5 ring-1 ring-inset ring-amber-600/[0.08]">
+                    <span className="flex min-w-0 items-center gap-2 truncate">
+                      <span className="text-[12px] font-semibold tracking-tight tabular-nums text-amber-700">{formatHeDate(bts.date)}</span>
+                      <span className="truncate text-[10px] font-normal tracking-tight tabular-nums text-amber-500">
+                        הפסקה {bts.start_time.slice(0,5)}–{bts.end_time.slice(0,5)}
+                      </span>
+                    </span>
+                    <button
+                      onClick={async () => { await supabase.from('blocked_time_slots').delete().eq('id', bts.id); fetchData(); }}
+                      aria-label="הסרת הפסקה"
+                      className={`${ACTION_CIRCLE} h-6 w-6 bg-amber-100/60 text-amber-500`}
+                    >
+                      <X size={12}/>
+                    </button>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         )}
 
+        {/* ======================= CUSTOMERS ======================= */}
         {activeTab === 'customers' && (
-          <div className="space-y-5 animate-in fade-in duration-500">
-            <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center gap-2.5 mb-2 border-b border-slate-100 pb-4">
-                <Users size={18} className="text-[#c9a961]" />
-                <h2 className="text-xs font-black uppercase tracking-widest text-slate-900">מועדון לקוחות קבועות</h2>
-              </div>
-              <p className="text-[10px] text-slate-400 mb-4">רשימת הלקוחות הנאמנות שביצעו יותר מתור אחד במערכת (לא כולל המנהלת).</p>
-             
-              <div className="relative mb-5">
+          <div className="anim-fade-up space-y-3">
+            <div className="flex gap-1.5">
+              <MiniStat label="מתמידות" value={customerBaseStats.loyalCustomers.length} />
+              <MiniStat label="מזדמנות" value={customerBaseStats.newCustomersCount} />
+              <MiniStat label="סך הכל" value={customerBaseStats.totalActiveCount} />
+            </div>
+
+            <section className={`${CARD} p-4`}>
+              <SectionHeader
+                icon={Users}
+                title="מועדון לקוחות קבועות"
+                description="רשימת הלקוחות הנאמנות שביצעו יותר מתור אחד במערכת (לא כולל המנהלת)."
+              />
+
+              <div className="relative mb-3">
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="חיפוש לקוחה לפי שם או טלפון..."
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl pl-4 pr-11 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
+                  className="w-full rounded-full border border-slate-900/[0.06] bg-slate-100/50 py-2.5 pl-9 pr-9 text-right text-[13.5px] font-normal tracking-tight outline-none transition-all placeholder:text-slate-400 focus:border-[#c9a961]/40 focus:bg-white focus:ring-4 focus:ring-[#c9a961]/10"
                 />
-                <Search size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={14} className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 {searchTerm && (
-                  <button onClick={() => setSearchTerm('')} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors">
-                    <X size={14} />
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    aria-label="ניקוי חיפוש"
+                    className={`${ACTION_CIRCLE} absolute left-2 top-1/2 h-6 w-6 -translate-y-1/2 bg-slate-300/40 text-slate-500`}
+                  >
+                    <X size={12} />
                   </button>
                 )}
               </div>
 
-              <div className="space-y-3">
-                {filteredCustomers.length === 0 ? (
-                  <p className="text-xs text-slate-300 text-center py-12">
-                    {searchTerm ? 'לא נמצאו לקוחות המתאימות לחיפוש.' : 'אין מספיק נתונים על לקוחות קבועות כרגע.'}
-                  </p>
-                ) : (
-                  filteredCustomers.map(customer => {
+              {filteredCustomers.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title={searchTerm ? 'לא נמצאה לקוחה' : 'אין נתונים'}
+                  description={searchTerm ? 'לא נמצאו לקוחות המתאימות לחיפוש.' : 'אין מספיק נתונים על לקוחות קבועות כרגע.'}
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredCustomers.map((customer, index) => {
                     const isExpanded = expandedCustomer === customer.phone;
-                    
+
                     const customerHistory = bookings
                       .filter(b => b.customer_phone === customer.phone)
                       .sort((a, b) => b.date.localeCompare(a.date) || b.start_time.localeCompare(a.start_time));
 
                     return (
-                      <div key={customer.phone} className="bg-white border border-slate-100/80 rounded-2xl overflow-hidden transition-all shadow-sm">
-                        <div
+                      <div
+                        key={customer.phone}
+                        style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
+                        className={`anim-fade-up overflow-hidden ${CARD} transition-all ${
+                          isExpanded ? 'border-[#c9a961]/30' : ''
+                        }`}
+                      >
+                        <button
                           onClick={() => setExpandedCustomer(isExpanded ? null : customer.phone)}
-                          className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50/50 transition-colors"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right transition-colors active:bg-slate-100/40"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-slate-900 rounded-xl flex items-center justify-center font-bold text-xs tabular-nums text-white">
-                              {customer.totalBookings}
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${GOLD_GRADIENT} text-[13px] font-semibold tabular-nums text-white shadow-[0_4px_12px_-3px_rgba(201,169,97,0.65)]`}
+                            >
+                              {customer.name.trim().charAt(0)}
                             </div>
-                            <div>
-                              <h4 className="font-bold text-slate-900 text-sm leading-none flex items-center gap-1.5">
-                                {customer.name}
-                                <Star size={12} className="text-[#c9a961] fill-[#c9a961]" />
+                            <div className="min-w-0">
+                              <h4 className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold not-italic leading-tight tracking-tight text-slate-900">
+                                <span className="min-w-0 truncate leading-tight">{customer.name}</span>
+                                <VipBadge count={customer.totalBookings} />
                               </h4>
-                              <p className="text-[10px] text-slate-400 font-medium tracking-tight mt-1 tabular-nums">{customer.phone}</p>
+                              <p className="mt-0.5 truncate text-[10.5px] font-normal tracking-tight tabular-nums text-slate-400">{customer.phone}</p>
                             </div>
                           </div>
-                          <div className="text-slate-400 transition-transform duration-200" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                            <ChevronLeft size={16} />
+                          <div
+                            className="shrink-0 text-slate-300 transition-transform duration-300"
+                            style={{ transform: isExpanded ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                          >
+                            <ChevronLeft size={15} />
                           </div>
-                        </div>
+                        </button>
 
                         {isExpanded && (
-                          <div className="px-4 pb-4 pt-1 bg-slate-50/40 border-t border-slate-50 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
-                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400">ביקור ראשון:</span>
-                                <span className="text-xs font-semibold text-slate-700 tabular-nums">{formatHeDate(customer.firstVisit)}</span>
+                          <div className={`anim-fade-up space-y-2 border-t ${HAIRLINE} bg-[#FDFBF6]/40 p-2.5`}>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              <div className="rounded-xl bg-white/70 px-2 py-2 text-center ring-1 ring-inset ring-slate-900/[0.04]">
+                                <p className="text-[8.5px] font-medium tracking-tight text-slate-400">ראשון</p>
+                                <p className="mt-1 text-[11px] font-semibold tracking-tight tabular-nums text-slate-700">{formatHeDate(customer.firstVisit)}</p>
                               </div>
-                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400">ביקור אחרון:</span>
-                                <span className="text-xs font-semibold text-slate-700 tabular-nums">{formatHeDate(customer.lastVisit)}</span>
+                              <div className="rounded-xl bg-white/70 px-2 py-2 text-center ring-1 ring-inset ring-slate-900/[0.04]">
+                                <p className="text-[8.5px] font-medium tracking-tight text-slate-400">אחרון</p>
+                                <p className="mt-1 text-[11px] font-semibold tracking-tight tabular-nums text-slate-700">{formatHeDate(customer.lastVisit)}</p>
                               </div>
-                              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-slate-100">
-                                <span className="text-[10px] font-bold text-slate-400 block"><Heart size={10} className="text-red-400 inline-block mr-1 fill-red-400"/> מועדף:</span>
-                                <span className="text-[11px] font-black text-[#b8964f] truncate max-w-[120px]">{customer.favoriteService}</span>
+                              <div className="rounded-xl bg-white/70 px-2 py-2 text-center ring-1 ring-inset ring-slate-900/[0.04]">
+                                <p className="flex items-center justify-center gap-1 text-[8.5px] font-medium tracking-tight text-slate-400">
+                                  <Heart size={8} className="fill-red-400 text-red-400" /> מועדף
+                                </p>
+                                <p className="mt-1 truncate text-[11px] font-semibold tracking-tight text-[#b8964f]">{customer.favoriteService}</p>
                               </div>
                             </div>
 
-                            <div className="bg-white rounded-xl border border-slate-100 p-3.5">
-                              <div className="flex items-center gap-1.5 mb-3 border-b border-slate-50 pb-2">
-                                <History size={13} className="text-slate-400" />
-                                <h5 className="text-[11px] font-black uppercase tracking-wider text-slate-500">תקציר תורים קודמים ({customerHistory.length})</h5>
+                            <div className="rounded-xl bg-white/70 p-3 ring-1 ring-inset ring-slate-900/[0.04]">
+                              <div className={`mb-2 flex items-center gap-1.5 border-b ${HAIRLINE} pb-2`}>
+                                <History size={11} className="text-slate-400" />
+                                <h5 className="text-[10px] font-medium tracking-tight text-slate-500">
+                                  תקציר תורים קודמים ({customerHistory.length})
+                                </h5>
                               </div>
-                              
-                              <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                              <div className="max-h-[150px] space-y-1.5 overflow-y-auto pl-0.5">
                                 {customerHistory.map((historyItem) => (
-                                  <div key={historyItem.id} className="flex justify-between items-center bg-[#FDFBF6]/60 p-2 rounded-lg border border-slate-100/50 text-right">
-                                    <div>
-                                      <p className="text-xs font-bold text-slate-800">{historyItem.service_title}</p>
-                                      <p className="text-[9px] text-slate-400 font-medium tracking-tight mt-0.5 tabular-nums">
-                                        {formatHeDate(historyItem.date)} • בשעה {historyItem.start_time.slice(0, 5)}
+                                  <div key={historyItem.id} className="flex items-center justify-between gap-2 rounded-xl bg-[#FDFBF6]/70 px-2.5 py-2 text-right ring-1 ring-inset ring-slate-900/[0.04]">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-[11.5px] font-medium leading-tight tracking-tight text-slate-800">{historyItem.service_title}</p>
+                                      <p className="mt-0.5 text-[9.5px] font-normal tracking-tight tabular-nums text-slate-400">
+                                        {formatHeDate(historyItem.date)} · {historyItem.start_time.slice(0, 5)}
                                       </p>
                                     </div>
-                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${historyItem.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-green-50 text-green-600 border-green-100'}`}>
-                                      {historyItem.status === 'pending' ? 'ממתין' : historyItem.date >= todayStr ? 'עתידי' : 'בוצע'}
-                                    </span>
+                                    {historyItem.status === 'pending' ? (
+                                      <Badge tone="amber">ממתין</Badge>
+                                    ) : historyItem.date >= todayStr ? (
+                                      <Badge tone="gold">עתידי</Badge>
+                                    ) : (
+                                      <Badge tone="slate">בוצע</Badge>
+                                    )}
                                   </div>
                                 ))}
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 pt-1">
-                              <a href={`tel:${customer.phone}`} className="py-3 bg-white border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all">
-                                <Phone size={12}/> חיוג מהיר
-                              </a>
-                              <button onClick={() => window.open(`https://wa.me/972${customer.phone.replace(/^0/, '')}`)} className="py-3 bg-green-50 text-green-700 border border-green-100 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all">
-                                <MessageCircle size={12}/> וואטסאפ מהיר
-                              </button>
+                            <div className="flex gap-1.5">
+                              <ContactChip icon={Phone} label="חיוג מהיר" href={`tel:${customer.phone}`} tone="slate" />
+                              <ContactChip
+                                icon={MessageCircle}
+                                label="וואטסאפ"
+                                onClick={() => window.open(`https://wa.me/972${customer.phone.replace(/^0/, '')}`)}
+                                tone="green"
+                              />
                             </div>
-
                           </div>
                         )}
                       </div>
                     );
-                  })
-                )}
-              </div>
-            </div>
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
+        {/* ======================= SERVICES ======================= */}
         {activeTab === 'services' && (
-          <div className="space-y-5 animate-in fade-in duration-500">
-            <div className="bg-white/80 backdrop-blur-xl p-5 rounded-[2.5rem] border border-white/40 shadow-sm text-right">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <Sparkles size={18} className="text-[#c9a961]" />
-                  <h2 className="text-xs font-black uppercase tracking-widest text-slate-900">מחירון ותפריט שירותים דינמי</h2>
-                </div>
-                <button
-                  onClick={() => handleOpenServiceModal()}
-                  className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-xl flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                >
-                  <Plus size={12} /> הוספת שירות
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 mb-6">עדכון, הוספה ומחיקה של טיפולים המופיעים ישירות בדף הזימון הראשי של הלקוחות.</p>
+          <div className="anim-fade-up space-y-3">
+            <div className="flex gap-1.5">
+              <MiniStat label="סך טיפולים" value={dbServices.length} />
+              <MiniStat
+                label="זמן קצר ביותר"
+                value={dbServices.length > 0 ? `${Math.min(...dbServices.map(s => s.duration_minutes))} דק'` : '0'}
+              />
+              <MiniStat label="באוויר" value={dbServices.length} />
+            </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                {dbServices.map((service) => (
-                  <div key={service.id} className="bg-[#FDFBF6]/40 border border-slate-100 p-5 rounded-2xl flex justify-between items-center shadow-sm text-right transition-all hover:bg-white">
-                    <div className="text-right flex-1 pl-4">
-                      <h4 className="font-bold text-slate-900 text-sm mb-1">{service.title}</h4>
-                      <div className="flex items-center gap-4 mt-1.5">
-                        <span className="text-xs text-[#b8964f] font-black">{service.price}</span>
-                        <span className="text-[10px] text-slate-300 font-bold uppercase tracking-tight">• {service.duration} ({service.duration_minutes} דק')</span>
+            <section className={`${CARD} p-4`}>
+              <SectionHeader
+                icon={Sparkles}
+                title="מחירון ותפריט שירותים"
+                description="עדכון, הוספה ומחיקה של טיפולים המופיעים ישירות בדף הזימון הראשי של הלקוחות."
+                action={
+                  <button
+                    onClick={() => handleOpenServiceModal()}
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold tracking-tight text-white shadow-[0_2px_8px_-2px_rgba(15,23,42,0.35)] transition-all active:scale-95"
+                  >
+                    <Plus size={12} /> הוספה
+                  </button>
+                }
+              />
+
+              {dbServices.length === 0 ? (
+                <EmptyState icon={Sparkles} title="אין שירותים" description="אין שירותים רשומים כרגע בבסיס הנתונים." />
+              ) : (
+                <div className="grid gap-1.5 md:grid-cols-2">
+                  {dbServices.map((service, index) => (
+                    <div
+                      key={service.id}
+                      style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
+                      className="anim-fade-up flex items-center justify-between gap-2 rounded-2xl border border-slate-900/[0.05] bg-white/70 px-3 py-2.5 shadow-[0_1px_8px_-3px_rgba(0,0,0,0.05)] backdrop-blur-xl transition-all hover:border-[#c9a961]/25 hover:bg-white"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <h4 className="truncate text-[14px] font-semibold leading-tight tracking-tight text-slate-900">{service.title}</h4>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-[12px] font-semibold tracking-tight tabular-nums text-[#b8964f]">{service.price}</span>
+                          <span className="truncate text-[10px] font-normal tracking-tight tabular-nums text-slate-400">
+                            {service.duration} · {service.duration_minutes} דק'
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1.5">
+                        <button
+                          onClick={() => handleOpenServiceModal(service)}
+                          aria-label={`עריכת ${service.title}`}
+                          className={`${ACTION_CIRCLE} bg-slate-100/70 text-slate-600 ring-1 ring-inset ring-slate-600/[0.06]`}
+                        >
+                          <Edit3 size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteService(service.id)}
+                          aria-label={`מחיקת ${service.title}`}
+                          className={`${ACTION_CIRCLE} bg-red-50/80 text-red-500 ring-1 ring-inset ring-red-600/10`}
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleOpenServiceModal(service)}
-                        className="w-8 h-8 bg-slate-100 text-slate-600 rounded-lg flex items-center justify-center hover:bg-slate-200 transition-colors"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteService(service.id)}
-                        className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center hover:bg-red-100 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {dbServices.length === 0 && (
-                  <p className="text-xs text-slate-300 text-center py-12">אין שירותים רשומים כרגע בבסיס הנתונים.</p>
-                )}
-              </div>
-            </div>
-
-            {isServiceModalOpen && (
-              <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsServiceModalOpen(false)}>
-                <form
-                  onSubmit={handleSaveService}
-                  className="bg-white/95 backdrop-blur-xl p-6 md:p-8 rounded-[2.5rem] border border-white/60 shadow-2xl text-right max-w-sm w-full animate-in zoom-in-95 duration-200 space-y-4"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-400">
-                      {editingService ? 'עריכת שירות קיים' : 'הוספת שירות חדש'}
-                    </span>
-                    <button type="button" onClick={() => setIsServiceModalOpen(false)} className="bg-slate-100 p-1.5 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">שם הטיפול</label>
-                      <input
-                        type="text"
-                        required
-                        value={serviceForm.title}
-                        onChange={e => setServiceForm({...serviceForm, title: e.target.value})}
-                        placeholder="לדוגמה: מבנה אנטומי - ג'ל"
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">מחיר לתצוגה</label>
-                      <input
-                        type="text"
-                        required
-                        value={serviceForm.price}
-                        onChange={e => setServiceForm({...serviceForm, price: e.target.value})}
-                        placeholder="לדוגמה: 150 ₪"
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">זמן טיפול לתצוגה</label>
-                      <input
-                        type="text"
-                        required
-                        value={serviceForm.duration}
-                        onChange={e => setServiceForm({...serviceForm, duration: e.target.value})}
-                        placeholder="לדוגמה: 90 דקות"
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">זמן בדקות (לחישוב ביומן)</label>
-                      <input
-                        type="number"
-                        required
-                        min={5}
-                        max={300}
-                        step={5}
-                        value={serviceForm.duration_minutes}
-                        onChange={e => setServiceForm({...serviceForm, duration_minutes: Number(e.target.value)})}
-                        placeholder="לדוגמה: 90"
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-right outline-none focus:border-[#c9a961] focus:bg-white transition-all text-sm font-medium tabular-nums"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md active:scale-95 transition-all pt-3.5"
-                  >
-                    {editingService ? 'עדכון שירות בדאטה' : 'שמירה והעלאה לאוויר'}
-                  </button>
-                </form>
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
+        {/* ======================= ACTIVITY ======================= */}
         {activeTab === 'activity' && (
-          <div className="bg-white/80 backdrop-blur-xl p-7 rounded-[2.5rem] border border-white/40 shadow-sm animate-in fade-in duration-500">
-            <div className="flex items-center gap-3 mb-7 border-b border-slate-100 pb-5 text-right"><History size={18} className="text-[#c9a961]" /><h2 className="text-xs font-black uppercase tracking-widest text-right">פעילות אחרונה</h2></div>
-            <div className="space-y-5 relative before:absolute before:right-4 before:top-2 before:bottom-2 before:w-[1px] before:bg-slate-100 text-right">
-              {activities.map(act => (
-                <div key={act.id} className="relative pr-9 text-right">
-                  <div className="absolute right-2.5 top-2 w-3 h-3 rounded-full bg-[#c9a961]/20 border border-[#c9a961] shadow-sm"></div>
-                  <div className="bg-[#FDFBF6]/50 border border-slate-100 p-4 rounded-2xl text-right">
-                    <p className="text-sm font-medium text-slate-800 leading-tight mb-2 text-right">{act.description || act.action}</p>
-                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest text-right">{new Date(act.created_at).toLocaleDateString('he-IL')} • {new Date(act.created_at).toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'})}</p>
-                  </div>
+          <div className="anim-fade-up">
+            <section className={`${CARD} p-4`}>
+              <SectionHeader icon={History} title="פעילות אחרונה" description="20 הפעולות האחרונות שנרשמו במערכת." />
+
+              {activities.length === 0 ? (
+                <EmptyState icon={History} title="אין פעילות להצגה" description="פעולות במערכת יופיעו כאן אוטומטית." />
+              ) : (
+                <div className="relative space-y-2 before:absolute before:bottom-2 before:right-[5px] before:top-2 before:w-px before:bg-gradient-to-b before:from-[#c9a961]/40 before:via-slate-200 before:to-transparent">
+                  {activities.map((act, index) => (
+                    <div
+                      key={act.id}
+                      style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+                      className="anim-fade-up relative pr-5"
+                    >
+                      <span className="absolute right-0 top-3 h-2.5 w-2.5 rounded-full bg-[#FDFBF6] ring-2 ring-[#c9a961]" />
+                      <div className="rounded-2xl border border-slate-900/[0.05] bg-white/70 px-3.5 py-2.5 shadow-[0_1px_8px_-3px_rgba(0,0,0,0.05)] backdrop-blur-xl">
+                        <p className="text-[12px] font-normal leading-relaxed tracking-tight text-slate-800">{act.description || act.action}</p>
+                        <p className="mt-1 text-[9.5px] font-medium tracking-tight tabular-nums text-slate-400">
+                          {new Date(act.created_at).toLocaleDateString('he-IL')} · {new Date(act.created_at).toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'})}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </section>
           </div>
         )}
       </main>
 
-      <div className="fixed bottom-5 left-4 right-4 z-[120] max-w-md mx-auto">
-        <div className="bg-slate-900/95 backdrop-blur-2xl rounded-[2rem] p-1.5 flex justify-between items-center shadow-2xl border border-white/10 gap-1">
-          <button onClick={() => setActiveTab('daily')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'daily' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-500'}`}>
-            <Clock size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">לו"ז</span>
-          </button>
-          <button onClick={() => setActiveTab('approvals')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'approvals' ? 'bg-amber-500 text-white shadow-xl' : 'text-slate-500'}`}>
-            <Bell size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">בקשות</span>
-          </button>
-          <button onClick={() => setActiveTab('calendar')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'calendar' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <CalendarIcon size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">ניהול</span>
-          </button>
-          <button onClick={() => setActiveTab('customers')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'customers' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <Users size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">לקוחות</span>
-          </button>
-          <button onClick={() => setActiveTab('services')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'services' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <Sparkles size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">שירותים</span>
-          </button>
-          <button onClick={() => setActiveTab('activity')} className={`flex-1 flex flex-col items-center py-2.5 rounded-2xl transition-all ${activeTab === 'activity' ? 'bg-[#c9a961] text-white shadow-xl' : 'text-slate-500'}`}>
-            <History size={14}/><span className="text-[7px] md:text-[8px] font-black uppercase mt-1">פעילות</span>
-          </button>
+      {/* ---------------- Quick calendar sheet ---------------- */}
+      {isQuickCalendarOpen && (
+        <div className={SCRIM} onClick={() => setIsQuickCalendarOpen(false)}>
+          <div className={`${SHEET} max-w-[19rem] p-4 text-center`} onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-playfair text-[15px] italic tracking-tight text-slate-900">ניווט מהיר ביומן</span>
+              <button
+                onClick={() => setIsQuickCalendarOpen(false)}
+                aria-label="סגירה"
+                className={`${ACTION_CIRCLE} bg-slate-200/50 text-slate-500`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <DayPicker
+              mode="single"
+              selected={selectedDate}
+              onSelect={(d) => { if (d) { setSelectedDate(d); setIsQuickCalendarOpen(false); } }}
+              modifiers={dayPickerModifiers}
+              modifiersClassNames={dayPickerModifiersClassNames}
+            />
+            {calendarLegend}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ---------------- Service modal ---------------- */}
+      {isServiceModalOpen && (
+        <div className={SCRIM} onClick={() => setIsServiceModalOpen(false)}>
+          <form
+            onSubmit={handleSaveService}
+            className={`${SHEET} max-h-[88vh] max-w-[20rem] overflow-y-auto p-5 text-right`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`mb-4 flex items-center justify-between border-b ${HAIRLINE} pb-3.5`}>
+              <h2 className="font-playfair text-[17px] italic tracking-tight text-slate-900">
+                {editingService ? 'עריכת שירות קיים' : 'הוספת שירות חדש'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsServiceModalOpen(false)}
+                aria-label="סגירה"
+                className={`${ACTION_CIRCLE} bg-slate-200/50 text-slate-500`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className={FIELD_LABEL}>שם הטיפול</label>
+                <input
+                  type="text"
+                  required
+                  value={serviceForm.title}
+                  onChange={e => setServiceForm({...serviceForm, title: e.target.value})}
+                  placeholder="לדוגמה: מבנה אנטומי - ג'ל"
+                  className={FIELD}
+                />
+              </div>
+              <div>
+                <label className={FIELD_LABEL}>מחיר לתצוגה</label>
+                <input
+                  type="text"
+                  required
+                  value={serviceForm.price}
+                  onChange={e => setServiceForm({...serviceForm, price: e.target.value})}
+                  placeholder="לדוגמה: 150 ₪"
+                  className={FIELD}
+                />
+              </div>
+              <div>
+                <label className={FIELD_LABEL}>זמן טיפול לתצוגה</label>
+                <input
+                  type="text"
+                  required
+                  value={serviceForm.duration}
+                  onChange={e => setServiceForm({...serviceForm, duration: e.target.value})}
+                  placeholder="לדוגמה: 90 דקות"
+                  className={FIELD}
+                />
+              </div>
+              <div>
+                <label className={FIELD_LABEL}>זמן בדקות (לחישוב ביומן)</label>
+                <input
+                  type="number"
+                  required
+                  min={5}
+                  max={300}
+                  step={5}
+                  value={serviceForm.duration_minutes}
+                  onChange={e => setServiceForm({...serviceForm, duration_minutes: Number(e.target.value)})}
+                  placeholder="לדוגמה: 90"
+                  className={`${FIELD} tabular-nums`}
+                />
+              </div>
+            </div>
+
+            <button type="submit" className={`mt-5 ${BTN_DARK}`}>
+              {editingService ? 'עדכון שירות בדאטה' : 'שמירה והעלאה לאוויר'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ---------------- Floating dock nav (all 6 tabs) ---------------- */}
+      <nav className="fixed inset-x-0 bottom-0 z-[120] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1.5">
+        <div className="mx-auto flex max-w-md items-center gap-0.5 rounded-full border border-white/15 bg-slate-950/90 p-2 shadow-2xl shadow-slate-950/50 backdrop-blur-2xl">
+          {NAV_TABS.map(({ id, label, icon: Icon, badge }) => {
+            const isActive = activeTab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                aria-current={isActive ? 'page' : undefined}
+                className="relative flex flex-1 flex-col items-center gap-[0.1875rem] rounded-full py-1.5 transition-transform duration-300 ease-out active:scale-95"
+              >
+                {/* Active indicator sits behind the label so it can cross-fade smoothly. */}
+                <span
+                  className={`absolute inset-0 rounded-full bg-white shadow-[0_2px_10px_-2px_rgba(0,0,0,0.45)] transition-all duration-300 ease-out ${
+                    isActive ? 'scale-100 opacity-100' : 'scale-75 opacity-0'
+                  }`}
+                />
+                <Icon
+                  size={15}
+                  strokeWidth={isActive ? 2.4 : 1.8}
+                  className={`relative transition-colors duration-300 ${isActive ? 'text-slate-900' : 'text-slate-400'}`}
+                />
+                <span
+                  className={`relative text-[8px] leading-none tracking-tight transition-colors duration-300 ${
+                    isActive ? 'font-semibold text-slate-900' : 'font-medium text-slate-400'
+                  }`}
+                >
+                  {label}
+                </span>
+                {!!badge && badge > 0 && (
+                  <span className="absolute -top-0.5 left-1 z-10 flex h-[0.9375rem] min-w-[0.9375rem] items-center justify-center rounded-full bg-red-500 px-[0.1875rem] text-[7.5px] font-semibold leading-none tabular-nums text-white ring-[1.5px] ring-slate-950/90">
+                    {badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
