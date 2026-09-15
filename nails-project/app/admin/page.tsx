@@ -587,6 +587,25 @@ export default function AdminPage() {
   const handleRejectBooking = async (booking: Booking) => {
     if (!confirm(`האם את בטוחה שברצונך לדחות ולמחוק את בקשת התור של ${booking.customer_name}?`)) return;
     try {
+      const [year, month, day] = booking.date.split('-').map(Number);
+      const formattedDate = `${day}/${month}`;
+      const formattedTime = booking.start_time.slice(0, 5);
+      const rejectionMessage = `היי ${booking.customer_name},\nלצערנו אין באפשרותנו לאשר את בקשת התור בתאריך ${formattedDate} בשעה ${formattedTime}.\nנשמח לתאם מועד חלופי באתר! ❤️`;
+
+      try {
+        await fetch('/api/sms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: booking.customer_phone,
+            message: rejectionMessage,
+            isDirectMessage: true,
+          }),
+        });
+      } catch (smsErr) {
+        console.error('Rejection SMS bypassed or failed:', smsErr);
+      }
+
       const { error } = await supabase.from('bookings').delete().eq('id', booking.id);
       if (error) throw error;
       await fetchData();
@@ -617,7 +636,12 @@ export default function AdminPage() {
     const dateStr = manualBookingForm.date;
     const startTime = manualBookingForm.startTime;
 
-    if (!service || !name || phone.length < 9 || !dateStr || !startTime) {
+    if (!/^05\d{8}$/.test(phone)) {
+      showToast('נא להזין מספר טלפון נייד תקין בן 10 ספרות (המתחיל ב-05)', 'error');
+      return;
+    }
+
+    if (!service || !name || !dateStr || !startTime) {
       showToast('אנא מלאי את כל השדות ובחרי שעה פנויה.', 'error');
       return;
     }
@@ -667,22 +691,32 @@ export default function AdminPage() {
 
     setSavingManualBooking(true);
     try {
-      const { error } = await supabase.from('bookings').insert([
-        {
-          service_id: service.id,
-          service_title: service.title,
-          service_duration: duration,
-          date: dateStr,
-          start_time: startTime,
-          end_time: endTime,
-          customer_name: name,
-          customer_phone: phone,
-          cancellation_token: uuidv4(),
-          status: 'confirmed',
-          is_verified: true,
-        },
-      ]);
-      if (error) throw error;
+      const cancellationToken = uuidv4();
+      const { data: res, error: rpcErr } = await supabase.rpc('create_booking_safe', {
+        p_customer_name: name,
+        p_customer_phone: phone,
+        p_service_id: service.id,
+        p_service_name: service.title,
+        p_service_price: service.price,
+        p_service_duration: duration,
+        p_date: dateStr,
+        p_start_time: startTime,
+        p_end_time: endTime,
+        p_status: 'confirmed',
+        p_cancellation_token: cancellationToken,
+        p_is_verified: true,
+      });
+
+      const rpcMsg = `${rpcErr?.message || ''} ${rpcErr?.details || ''} ${typeof res === 'string' ? res : JSON.stringify(res ?? '')}`.toLowerCase();
+      const collision =
+        (res && typeof res === 'object' && (res.success === false || /collision|overlap|conflict|taken|תפוס|תפוסה|slot/.test(`${res.error || res.message || ''}`))) ||
+        /collision|overlap|conflict|taken|already booked|slot|תפוס|תפוסה|23p01|exclusion/.test(rpcMsg);
+
+      if (collision) {
+        showToast('השעה כבר תפוסה. בחרי שעה אחרת.', 'error');
+        return;
+      }
+      if (rpcErr) throw rpcErr;
 
       const [year, month, day] = dateStr.split('-').map(Number);
       const formattedDate = `${day}/${month}`;

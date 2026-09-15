@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logActivity } from '@/lib/supabase';
 
-// SMS4FREE API Configuration
+// SMS4FREE API Configuration (prefer env; keep legacy fallbacks for zero downtime)
 const SMS_API_URL = 'https://api.sms4free.co.il/ApiSMS/v2/SendSMS';
-const SMS_KEY = 'NdJLEt3aR';
-const SMS_USER = '0528842308'; 
-const SMS_PASS = '63434852';
-const SMS_SENDER = 'AdarNails'; 
+const SMS_KEY = process.env.SMS_KEY || 'NdJLEt3aR';
+const SMS_USER = process.env.SMS_USER || '0528842308';
+const SMS_PASS = process.env.SMS_PASS || '63434852';
+const SMS_SENDER = process.env.SMS_SENDER || 'AdarNails';
 
 // Helper function to format phone number to 9725XXXXXXXX format
 function formatPhoneNumber(phone: string): string {
@@ -59,12 +59,12 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(payload),
     });
 
-    let result;
+    const rawText = await response.text();
+    let result: any;
     try {
-      result = await response.json();
-    } catch (e) {
-      const text = await response.text();
-      result = { message: text || 'Unknown error' };
+      result = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      result = { message: rawText || 'Unknown error' };
     }
 
     if (response.ok) {

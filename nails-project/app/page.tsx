@@ -73,6 +73,9 @@ export default function Home() {
   const [temporaryBookingData, setTemporaryBookingData] = useState<any | null>(null); 
   const [verifying, setVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string>('');
+  const [resendingOtp, setResendingOtp] = useState(false);
+  const [otpResendFeedback, setOtpResendFeedback] = useState('');
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
   
   const [showMyAppointments, setShowMyAppointments] = useState(false);
   const [appointmentsPhone, setAppointmentsPhone] = useState<string>('');
@@ -85,6 +88,7 @@ export default function Home() {
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [appointmentsBookingId, setAppointmentsBookingId] = useState<string | null>(null); 
   const [appointmentsError, setAppointmentsError] = useState<string>(''); 
+  const [appointmentsCustomerName, setAppointmentsCustomerName] = useState<string>(''); 
   
   const [showAccessibilityModal, setShowAccessibilityModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -107,6 +111,18 @@ export default function Home() {
     fetchServices();
   }, []);
 
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const timer = setTimeout(() => setOtpResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [otpResendCooldown]);
+
+  useEffect(() => {
+    if (!otpResendFeedback) return;
+    const timer = setTimeout(() => setOtpResendFeedback(''), 4000);
+    return () => clearTimeout(timer);
+  }, [otpResendFeedback]);
+
   const selectedServiceData = useMemo(() => {
     const found = services.find(s => s.id === selectedService);
     if (!found) return null;
@@ -119,9 +135,9 @@ export default function Home() {
     };
   }, [services, selectedService]);
 
-  const isValidPhoneNumber = (phone: string): boolean => { 
-    const digits = phone.replace(/\D/g, ''); 
-    return digits.length >= 9 && digits.length <= 10 && /^05/.test(digits); 
+  const isValidPhoneNumber = (phone: string): boolean => {
+    const digits = phone.replace(/\D/g, '');
+    return /^05\d{8}$/.test(digits);
   };
   const isFormValid = customerName.trim().length > 0 && isValidPhoneNumber(customerPhone);
 
@@ -245,6 +261,58 @@ export default function Home() {
     return slots;
   }, [selectedServiceData, selectedDate, bookings, blockedTimeSlots, dailySchedule]);
 
+  const isBookingCollisionError = (rpcErr: any, res: any): boolean => {
+    const msg = `${rpcErr?.message || ''} ${rpcErr?.details || ''} ${rpcErr?.hint || ''} ${typeof res === 'string' ? res : JSON.stringify(res ?? '')}`.toLowerCase();
+    if (res && typeof res === 'object' && (res.success === false || res.error || res.status === 'error')) {
+      const errText = `${res.error || res.message || res.code || ''}`.toLowerCase();
+      if (/collision|overlap|conflict|taken|תפוס|תפוסה|slot/.test(errText) || res.success === false) return true;
+    }
+    return /collision|overlap|conflict|taken|already booked|slot|תפוס|תפוסה|23p01|exclusion/.test(msg);
+  };
+
+  const createBookingViaRpc = async (bookingData: {
+    customer_name: string;
+    customer_phone: string;
+    service_id: string;
+    service_title?: string;
+    service_name?: string;
+    service_price?: string | number;
+    service_duration?: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+    status?: string;
+    cancellation_token?: string;
+    is_verified?: boolean;
+  }) => {
+    const { data: res, error: rpcErr } = await supabase.rpc('create_booking_safe', {
+      p_customer_name: (bookingData.customer_name || '').trim(),
+      p_customer_phone: bookingData.customer_phone,
+      p_service_id: bookingData.service_id,
+      p_service_name: bookingData.service_title || bookingData.service_name || '',
+      p_service_price: String(bookingData.service_price || ''),
+      p_service_duration: String(bookingData.service_duration || 0),
+      p_date: bookingData.date,
+      p_start_time: bookingData.start_time,
+      p_end_time: bookingData.end_time,
+      p_status: 'pending',
+      p_cancellation_token: bookingData.cancellation_token || crypto.randomUUID(),
+      p_is_verified: true,
+    });
+
+    if (rpcErr || isBookingCollisionError(rpcErr, res)) {
+      const collision = isBookingCollisionError(rpcErr, res);
+      const err = collision
+        ? Object.assign(new Error('SLOT_COLLISION'), { code: 'SLOT_COLLISION' })
+        : (rpcErr || new Error('BOOKING_RPC_FAILED'));
+      throw err;
+    }
+
+    if (res && typeof res === 'object' && res.booking) return res.booking;
+    if (res && typeof res === 'object' && res.id) return res;
+    return { ...bookingData, service_title: bookingData.service_title, id: typeof res === 'string' ? res : undefined };
+  };
+
   const handleWhatsAppBooking = async () => {
     if (!selectedServiceData || !selectedDate || !selectedTime || !customerName || !isFormValid || savingBooking) return;
     setSavingBooking(true);
@@ -261,7 +329,8 @@ export default function Home() {
 
       const newBooking = { 
         service_id: selectedServiceData.id, 
-        service_title: selectedServiceData.title, 
+        service_title: selectedServiceData.title,
+        service_price: selectedServiceData.price,
         service_duration: selectedServiceData.durationMinutes, 
         date: format(selectedDate, 'yyyy-MM-dd'), 
         start_time: slot.start, 
@@ -275,30 +344,54 @@ export default function Home() {
       };
 
       if (hasActiveSession) {
-        const { data, error } = await supabase.from('bookings').insert([newBooking]).select().single();
-        if (error) throw error;
+        const data = await createBookingViaRpc({
+          customer_name: newBooking.customer_name,
+          customer_phone: newBooking.customer_phone,
+          service_id: newBooking.service_id,
+          service_title: newBooking.service_title,
+          service_price: newBooking.service_price,
+          service_duration: newBooking.service_duration,
+          date: newBooking.date,
+          start_time: newBooking.start_time,
+          end_time: newBooking.end_time,
+          status: 'pending',
+          cancellation_token: newBooking.cancellation_token,
+          is_verified: true,
+        });
         if (data) {
-          await sendPendingNotificationToManager(data);
+          await sendPendingNotificationToManager({ ...newBooking, ...data, service_title: data.service_title || newBooking.service_title });
           setStep('success'); 
         }
       } else { 
         const vCode = Math.floor(1000 + Math.random() * 9000).toString();
         newBooking.verification_code = vCode;
 
-        await fetch('/api/sms', { 
+        const smsRes = await fetch('/api/sms', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ phone: phoneDigits, code: vCode, customerName: customerName.trim() })
         });
+        const smsData = await smsRes.json().catch(() => ({}));
+        if (!smsRes.ok || !smsData.success) {
+          alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+          setSavingBooking(false);
+          return;
+        }
 
         setTemporaryBookingData(newBooking); 
         setStep('verification'); 
         setVerificationCode(''); 
         setVerificationError('');
+        setOtpResendFeedback('');
+        setOtpResendCooldown(30);
       }
-    } catch (e) { 
+    } catch (e: any) { 
       console.error(e);
-      alert('שגיאה ברישום התור. אנא נסי שנית.'); 
+      if (e?.code === 'SLOT_COLLISION' || e?.message === 'SLOT_COLLISION') {
+        alert('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+      } else {
+        alert('שגיאה ברישום התור. אנא נסי שנית.'); 
+      }
     } finally { 
       setSavingBooking(false); 
     }
@@ -308,36 +401,135 @@ export default function Home() {
     if (!temporaryBookingData || verificationCode.length !== 4 || verifying) return;
     setVerifying(true);
     setVerificationError('');
-    
+
     try {
-      if (verificationCode === temporaryBookingData.verification_code) {
-        const finalBooking = {
-          ...temporaryBookingData,
-          is_verified: true,
-          verification_code: undefined 
-        };
-
-        const { data, error } = await supabase.from('bookings').insert([finalBooking]).select().single();
-        if (error) throw error;
-
-        createVerifiedSession(finalBooking.customer_phone); 
-        if (data) await sendPendingNotificationToManager(data); 
-        
-        setTemporaryBookingData(null); 
-        setStep('success');
-      } else {
+      if (verificationCode !== temporaryBookingData.verification_code) {
         setVerificationError('קוד אימות שגוי');
+        setVerificationCode('');
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      setVerificationError('שגיאה בשמירת התור, אנא נסי שנית');
-    } finally { 
-      setVerifying(false); 
+
+      const bookingPayload = {
+        customer_name: (temporaryBookingData.customer_name || '').trim(),
+        customer_phone: temporaryBookingData.customer_phone,
+        service_id: String(temporaryBookingData.service_id || 'default'),
+        service_name: temporaryBookingData.service_title || temporaryBookingData.service_name || 'טיפול',
+        service_price: String(temporaryBookingData.service_price || '0'),
+        service_duration: String(temporaryBookingData.service_duration || '60'),
+        date: temporaryBookingData.date,
+        start_time: temporaryBookingData.start_time,
+        end_time: temporaryBookingData.end_time,
+        status: 'pending',
+        is_verified: true,
+        cancellation_token: temporaryBookingData.cancellation_token || crypto.randomUUID(),
+      };
+
+      let data: any = null;
+
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('create_booking_safe', {
+          p_customer_name: bookingPayload.customer_name,
+          p_customer_phone: bookingPayload.customer_phone,
+          p_service_id: bookingPayload.service_id,
+          p_service_name: bookingPayload.service_name,
+          p_service_price: bookingPayload.service_price,
+          p_service_duration: bookingPayload.service_duration,
+          p_date: bookingPayload.date,
+          p_start_time: bookingPayload.start_time,
+          p_end_time: bookingPayload.end_time,
+          p_status: 'pending',
+          p_cancellation_token: bookingPayload.cancellation_token,
+          p_is_verified: true,
+        });
+
+        if (rpcRes && typeof rpcRes === 'object' && (rpcRes.error === 'SLOT_OCCUPIED' || rpcRes.code === 'SLOT_OCCUPIED')) {
+          setVerificationError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+          return;
+        }
+
+        if (!rpcErr && rpcRes) {
+          if (typeof rpcRes === 'object' && rpcRes.booking) data = rpcRes.booking;
+          else if (typeof rpcRes === 'object' && rpcRes.id) data = rpcRes;
+          else if (typeof rpcRes === 'object' && rpcRes.success === false) {
+            const errText = `${rpcRes.error || rpcRes.message || ''}`.toLowerCase();
+            if (/slot|occupied|collision|overlap|תפוס|תפוסה/.test(errText)) {
+              setVerificationError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+              return;
+            }
+          } else {
+            data = { ...bookingPayload, service_title: bookingPayload.service_name };
+          }
+        }
+      } catch (rpcCatch) {
+        console.warn('RPC attempt failed, falling back to direct insert:', rpcCatch);
+      }
+
+      if (!data) {
+        const { data: insertData, error: insertErr } = await supabase
+          .from('bookings')
+          .insert([{
+            customer_name: bookingPayload.customer_name,
+            customer_phone: bookingPayload.customer_phone,
+            service_id: bookingPayload.service_id,
+            service_title: bookingPayload.service_name,
+            service_duration: Number(bookingPayload.service_duration) || 60,
+            date: bookingPayload.date,
+            start_time: bookingPayload.start_time,
+            end_time: bookingPayload.end_time,
+            status: 'pending',
+            is_verified: true,
+            cancellation_token: bookingPayload.cancellation_token,
+          }])
+          .select()
+          .single();
+
+        if (insertErr) {
+          const insertMsg = `${insertErr.message || ''} ${insertErr.details || ''} ${insertErr.code || ''}`.toLowerCase();
+          if (/slot|occupied|collision|overlap|exclusion|23p01|תפוס|תפוסה/.test(insertMsg)) {
+            setVerificationError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+            return;
+          }
+          console.error('Booking insert error:', insertErr);
+          setVerificationError('שגיאה בשמירת התור, אנא נסי שנית');
+          return;
+        }
+        data = insertData;
+      }
+
+      createVerifiedSession(bookingPayload.customer_phone);
+
+      try {
+        await sendPendingNotificationToManager({
+          ...bookingPayload,
+          ...data,
+          service_title: data?.service_title || bookingPayload.service_name,
+        });
+      } catch (smsErr) {
+        console.error('Manager notification failed (non-blocking):', smsErr);
+      }
+
+      setTemporaryBookingData(null);
+      setStep('success');
+    } catch (err: any) {
+      console.error('handleVerification error:', err);
+      const errMsg = `${err?.message || ''} ${err?.code || ''}`.toLowerCase();
+      if (/slot|occupied|collision|תפוס|תפוסה|SLOT_COLLISION/i.test(errMsg) || err?.code === 'SLOT_COLLISION') {
+        setVerificationError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+      } else {
+        setVerificationError('שגיאה בשמירת התור, אנא נסי שנית');
+      }
+    } finally {
+      setVerifying(false);
     }
   };
 
   const fetchMyAppointments = async (phone: string, skipVerification = false) => {
     const phoneDigits = phone.replace(/\D/g, '');
+    if (!isValidPhoneNumber(phoneDigits)) {
+      setAppointmentsError('נא להזין מספר טלפון נייד תקין בן 10 ספרות (המתחיל ב-05)');
+      setAppointmentsLoading(false);
+      return;
+    }
     setAppointmentsLoading(true);
     setAppointmentsError('');
 
@@ -359,14 +551,23 @@ export default function Home() {
       const code = Math.floor(1000 + Math.random() * 9000).toString();
       await supabase.from('bookings').update({ verification_code: code }).eq('id', existing[0].id);
       setAppointmentsBookingId(existing[0].id);
+      setAppointmentsCustomerName(existing[0].customer_name || 'לקוחה');
 
-      await fetch('/api/sms', { 
+      const smsRes = await fetch('/api/sms', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ phone: phoneDigits, code, customerName: existing[0].customer_name || 'לקוחה' })
       });
+      const smsData = await smsRes.json().catch(() => ({}));
+      if (!smsRes.ok || !smsData.success) {
+        alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+        setAppointmentsLoading(false);
+        return;
+      }
 
       setAppointmentsNeedsVerification(true);
+      setOtpResendFeedback('');
+      setOtpResendCooldown(30);
       setAppointmentsLoading(false);
       return;
     }
@@ -393,6 +594,74 @@ export default function Home() {
       setAppointmentsNeedsVerification(false);
     } else {
       setAppointmentsVerificationError('קוד שגוי');
+    }
+  };
+
+  const handleResendBookingOtp = async () => {
+    if (!temporaryBookingData || resendingOtp || otpResendCooldown > 0) return;
+    setResendingOtp(true);
+    setOtpResendFeedback('');
+    setVerificationError('');
+    try {
+      const vCode = Math.floor(1000 + Math.random() * 9000).toString();
+      const smsRes = await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: temporaryBookingData.customer_phone,
+          code: vCode,
+          customerName: temporaryBookingData.customer_name,
+        }),
+      });
+      const smsData = await smsRes.json().catch(() => ({}));
+      if (!smsRes.ok || !smsData.success) {
+        alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+        return;
+      }
+      setTemporaryBookingData({ ...temporaryBookingData, verification_code: vCode });
+      setVerificationCode('');
+      setOtpResendFeedback('קוד חדש נשלח אלייך!');
+      setOtpResendCooldown(30);
+    } catch (err) {
+      console.error(err);
+      alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+    } finally {
+      setResendingOtp(false);
+    }
+  };
+
+  const handleResendAppointmentsOtp = async () => {
+    if (!appointmentsBookingId || resendingOtp || otpResendCooldown > 0) return;
+    setResendingOtp(true);
+    setOtpResendFeedback('');
+    setAppointmentsVerificationError('');
+    try {
+      const phoneDigits = appointmentsPhone.replace(/\D/g, '');
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      await supabase.from('bookings').update({ verification_code: code }).eq('id', appointmentsBookingId);
+
+      const smsRes = await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: phoneDigits,
+          code,
+          customerName: appointmentsCustomerName || 'לקוחה',
+        }),
+      });
+      const smsData = await smsRes.json().catch(() => ({}));
+      if (!smsRes.ok || !smsData.success) {
+        alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+        return;
+      }
+      setAppointmentsVerificationCode('');
+      setOtpResendFeedback('קוד חדש נשלח אלייך!');
+      setOtpResendCooldown(30);
+    } catch (err) {
+      console.error(err);
+      alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
+    } finally {
+      setResendingOtp(false);
     }
   };
 
@@ -433,7 +702,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-[#FCFBFA]" />
         <div className="relative h-full flex flex-col items-center justify-center text-center px-4 pt-8">
           <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl px-10 py-10 md:px-16 md:py-14 mb-6 max-w-md w-full border border-white/50">
-            <h1 className="text-4xl md:text-5xl font-sans font-semibold not-italic leading-tight text-slate-900 mb-2 uppercase">ADAR COSMETICS</h1>
+            <h1 className="text-4xl md:text-5xl font-serif italic text-slate-900 mb-2 uppercase">ADAR COSMETICS</h1>
             <p className="text-[#c9a961] text-[10px] tracking-[0.4em] uppercase font-bold">Boutique Experience</p>
           </div>
           <div className="flex items-center justify-center gap-6">
@@ -453,7 +722,7 @@ export default function Home() {
                 <div key={s.id} onClick={() => setSelectedService(s.id)} className={`group cursor-pointer p-7 rounded-[2rem] transition-all border shadow-sm ${selectedService === s.id ? 'border-[#c9a961] bg-[#E5E1D8]' : 'border-slate-100 bg-[#FAF9F6] hover:bg-white'}`}>
                   <div className="flex justify-between items-center">
                     <div className="flex flex-col gap-1 text-right">
-                      <h3 className="text-lg font-semibold not-italic leading-tight text-slate-800">{s.title}</h3>
+                      <h3 className="text-lg font-light text-slate-800">{s.title}</h3>
                       <p className="text-[10px] tracking-widest uppercase text-slate-400">{s.duration}</p>
                     </div>
                     <div className="text-left flex flex-col items-end"><span className="text-xl font-light text-slate-900">{s.price}</span><div className={`mt-1 h-[1px] w-5 bg-[#c9a961] ${selectedService === s.id ? 'w-full' : 'group-hover:w-full'}`}></div></div>
@@ -505,6 +774,23 @@ export default function Home() {
               <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">הזיני את הקוד שנשלח אלייך</p>
             </div>
             <OTPInput value={verificationCode} onChange={setVerificationCode} error={verificationError} />
+            <div className="flex flex-col items-center gap-2">
+              {otpResendFeedback && (
+                <p className="text-[10px] font-medium tracking-wider text-[#c9a961] animate-in fade-in">{otpResendFeedback}</p>
+              )}
+              <button
+                type="button"
+                onClick={handleResendBookingOtp}
+                disabled={resendingOtp || otpResendCooldown > 0}
+                className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-4 tracking-wider transition-colors py-1 disabled:opacity-40 disabled:no-underline disabled:hover:text-slate-500"
+              >
+                {resendingOtp
+                  ? 'שולחת קוד...'
+                  : otpResendCooldown > 0
+                    ? `שלחי שוב בעוד ${otpResendCooldown} שניות`
+                    : 'לא קיבלת קוד? שלחי שוב'}
+              </button>
+            </div>
             <button onClick={handleVerification} disabled={verifying || verificationCode.length !== 4} className="w-full max-w-xs py-5 bg-slate-900 text-white rounded-full font-bold shadow-2xl uppercase tracking-widest text-[10px] active:scale-95 transition-all">שלחי בקשת תור</button>
           </div>
         )}
@@ -545,6 +831,23 @@ export default function Home() {
                     <p className="text-sm text-slate-500">נשלח קוד למספר {appointmentsPhone}</p>
                   </div>
                   <OTPInput value={appointmentsVerificationCode} onChange={setAppointmentsVerificationCode} error={appointmentsVerificationError} />
+                  <div className="flex flex-col items-center gap-2">
+                    {otpResendFeedback && (
+                      <p className="text-[10px] font-medium tracking-wider text-[#c9a961] animate-in fade-in">{otpResendFeedback}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleResendAppointmentsOtp}
+                      disabled={resendingOtp || otpResendCooldown > 0}
+                      className="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-4 tracking-wider transition-colors py-1 disabled:opacity-40 disabled:no-underline disabled:hover:text-slate-500"
+                    >
+                      {resendingOtp
+                        ? 'שולחת קוד...'
+                        : otpResendCooldown > 0
+                          ? `שלחי שוב בעוד ${otpResendCooldown} שניות`
+                          : 'לא קיבלת קוד? שלחי שוב'}
+                    </button>
+                  </div>
                   <button onClick={handleAppointmentsVerification} className="w-full py-5 bg-slate-900 text-white rounded-full font-bold shadow-xl text-[10px] tracking-widest uppercase active:scale-95 transition-all">אמת וצפה בתורים</button>
                 </div>
               ) : !appointmentsVerified ? (
