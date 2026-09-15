@@ -268,7 +268,7 @@ function StatusChip({ status }: { status?: string }) {
   return <Badge tone="emerald">מאושר</Badge>;
 }
 
-function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+function LoginForm({ onLoginSuccess }: { onLoginSuccess: (session: Session) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -281,7 +281,11 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) { setError('פרטים שגויים'); return; }
-      if (data.session) onLoginSuccess();
+      if (data.session) {
+        setEmail('');
+        setPassword('');
+        onLoginSuccess(data.session);
+      }
     } catch (err) { setError('שגיאה'); } finally { setLoading(false); }
   };
 
@@ -866,12 +870,27 @@ export default function AdminPage() {
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      setSession(session); setCheckingAuth(false);
+      setSession(session);
+      setCheckingAuth(false);
     };
     checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchData();
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => { if (session) fetchData(); }, [session]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  };
 
   const changeDay = (offset: number) => {
     const newDate = new Date(selectedDate);
@@ -1117,7 +1136,16 @@ export default function AdminPage() {
   }, [manualAvailableSlots, manualBookingForm.startTime]);
 
   if (checkingAuth) return null;
-  if (!session) return <LoginForm onLoginSuccess={() => fetchData()} />;
+  if (!session) {
+    return (
+      <LoginForm
+        onLoginSuccess={(nextSession) => {
+          setSession(nextSession);
+          fetchData();
+        }}
+      />
+    );
+  }
 
   const selectedDateStr = toLocalDateString(selectedDate);
   const isSelectedToday = selectedDateStr === todayStr;
@@ -1327,7 +1355,7 @@ export default function AdminPage() {
                 )}
               </button>
               <button
-                onClick={() => supabase.auth.signOut()}
+                onClick={handleLogout}
                 aria-label="התנתקות"
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-900/[0.05] bg-white/70 text-slate-300 transition-all hover:text-red-500 active:scale-90"
               >
