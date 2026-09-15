@@ -433,7 +433,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-[#FCFBFA]" />
         <div className="relative h-full flex flex-col items-center justify-center text-center px-4 pt-8">
           <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl px-10 py-10 md:px-16 md:py-14 mb-6 max-w-md w-full border border-white/50">
-            <h1 className="text-4xl md:text-5xl font-serif italic text-slate-900 mb-2 uppercase">ADAR COSMETICS</h1>
+            <h1 className="text-4xl md:text-5xl font-sans font-semibold not-italic leading-tight text-slate-900 mb-2 uppercase">ADAR COSMETICS</h1>
             <p className="text-[#c9a961] text-[10px] tracking-[0.4em] uppercase font-bold">Boutique Experience</p>
           </div>
           <div className="flex items-center justify-center gap-6">
@@ -453,7 +453,7 @@ export default function Home() {
                 <div key={s.id} onClick={() => setSelectedService(s.id)} className={`group cursor-pointer p-7 rounded-[2rem] transition-all border shadow-sm ${selectedService === s.id ? 'border-[#c9a961] bg-[#E5E1D8]' : 'border-slate-100 bg-[#FAF9F6] hover:bg-white'}`}>
                   <div className="flex justify-between items-center">
                     <div className="flex flex-col gap-1 text-right">
-                      <h3 className="text-lg font-light text-slate-800">{s.title}</h3>
+                      <h3 className="text-lg font-semibold not-italic leading-tight text-slate-800">{s.title}</h3>
                       <p className="text-[10px] tracking-widest uppercase text-slate-400">{s.duration}</p>
                     </div>
                     <div className="text-left flex flex-col items-end"><span className="text-xl font-light text-slate-900">{s.price}</span><div className={`mt-1 h-[1px] w-5 bg-[#c9a961] ${selectedService === s.id ? 'w-full' : 'group-hover:w-full'}`}></div></div>
@@ -487,7 +487,7 @@ export default function Home() {
           <div className="space-y-8 animate-in fade-in duration-500 bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-50">
             <button onClick={() => setStep('calendar')} className="text-slate-400 hover:text-slate-950 flex items-center gap-2 font-medium text-xs uppercase tracking-widest">← חזרה</button>
             <div className="space-y-6 text-center">
-              <h2 className="text-3xl font-serif italic text-slate-900">פרטי יצירת קשר</h2>
+              <h2 className="text-3xl font-sans font-semibold not-italic leading-tight text-slate-900">פרטי יצירת קשר</h2>
               <div className="space-y-4">
                 <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="שם מלא" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" />
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="מספר טלפון" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" dir="ltr" />
@@ -501,7 +501,7 @@ export default function Home() {
           <div className="flex flex-col items-center py-20 space-y-10 animate-in fade-in bg-white rounded-[3rem] p-10 shadow-xl border border-slate-50">
             <div className="w-20 h-20 bg-slate-900 rounded-[2rem] flex items-center justify-center text-white shadow-2xl rotate-6"><Lock size={28} /></div>
             <div className="text-center">
-              <h2 className="text-3xl font-serif italic mb-2">אימות טלפון</h2>
+              <h2 className="text-3xl font-sans font-semibold not-italic leading-tight mb-2">אימות טלפון</h2>
               <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">הזיני את הקוד שנשלח אלייך</p>
             </div>
             <OTPInput value={verificationCode} onChange={setVerificationCode} error={verificationError} />
@@ -512,7 +512,7 @@ export default function Home() {
         {step === 'success' && (
           <div className="text-center py-24 px-8 space-y-8 bg-white rounded-[4rem] border border-slate-50 shadow-2xl animate-in zoom-in">
             <div className="w-20 h-20 bg-amber-500 rounded-full flex items-center justify-center mx-auto text-white shadow-2xl animate-bounce"><Check size={36} /></div>
-            <h2 className="text-4xl font-serif italic text-slate-900">הבקשה נשלחה!</h2>
+            <h2 className="text-4xl font-sans font-semibold not-italic leading-tight text-slate-900">הבקשה נשלחה!</h2>
             <p className="text-slate-500 max-w-sm mx-auto leading-relaxed text-sm">
               התור שלך שוריין במערכת וממתין כעת לאישור הסופי של אדר. <br />
               ברגע שהתור יאושר , תקבלי הודעת SMS למכשירך עם פרטי התור המלאים ! ❤️
@@ -526,7 +526,7 @@ export default function Home() {
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowMyAppointments(false)}>
           <div className="bg-[#FCFBFA] rounded-[3.5rem] shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
             <div className="bg-white px-10 py-8 flex items-center justify-between border-b border-slate-50">
-              <h2 className="text-2xl font-serif italic">{showHistory ? 'היסטוריית הטיפולים שלי' : 'התורים העתידיים שלי'}</h2>
+              <h2 className="text-2xl font-sans font-semibold not-italic leading-tight">{showHistory ? 'היסטוריית הטיפולים שלי' : 'התורים העתידיים שלי'}</h2>
               <button onClick={() => setShowMyAppointments(false)} className="bg-slate-50 p-2.5 rounded-full text-slate-400"><X size={20} /></button>
             </div>
             
@@ -564,14 +564,14 @@ export default function Home() {
                     splitAppointments.future.length === 0 ? (
                       <div className="text-center py-10 flex flex-col items-center justify-center gap-3 opacity-30">
                         <Calendar size={32} className="text-slate-400" />
-                        <p className="italic text-sm">אין לך תורים עתידיים כרגע</p>
+                        <p className="font-sans text-sm font-medium not-italic leading-normal">אין לך תורים עתידיים כרגע</p>
                       </div>
                     ) : (
                       splitAppointments.future.map((app) => (
                         <div key={app.id} className="bg-white rounded-[2rem] p-8 border border-slate-50 shadow-sm transition-all hover:shadow-md text-right animate-in fade-in">
                           <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium text-slate-800 text-lg leading-none">{app.service_title}</h4>
-                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
+                            <h4 className="font-semibold not-italic text-slate-800 text-lg leading-tight truncate">{app.service_title}</h4>
+                            <span className={`text-[10px] font-bold leading-tight px-2.5 py-1 rounded-lg border ${
                               app.status === 'pending' 
                                 ? 'bg-amber-50 text-amber-700 border-amber-200/50 animate-pulse' 
                                 : 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
@@ -588,13 +588,13 @@ export default function Home() {
                     splitAppointments.past.length === 0 ? (
                       <div className="text-center py-10 flex flex-col items-center justify-center gap-3 opacity-30">
                         <History size={32} className="text-slate-400" />
-                        <p className="italic text-sm">אין עדיין טיפולים קודמים מתועדים במערכת</p>
+                        <p className="font-sans text-sm font-medium not-italic leading-normal">אין עדיין טיפולים קודמים מתועדים במערכת</p>
                       </div>
                     ) : (
                       splitAppointments.past.map((app) => (
                         <div key={app.id} className="bg-slate-50/50 rounded-[2rem] p-8 border border-slate-100 text-right animate-in fade-in opacity-85">
                           <div className="flex justify-between items-center mb-2">
-                            <h4 className="font-medium text-slate-700 text-base leading-none">{app.service_title}</h4>
+                            <h4 className="font-semibold not-italic text-slate-700 text-base leading-tight truncate">{app.service_title}</h4>
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-100 border border-slate-200/60 px-3 py-1 rounded-xl">בוצע</span>
                           </div>
                           <p className="text-slate-400 text-xs">{formatDateString(app.date)} • בשעה {app.start_time}</p>

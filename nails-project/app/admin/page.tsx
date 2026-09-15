@@ -209,7 +209,7 @@ function SectionHeader({
           >
             <Icon size={12} />
           </span>
-          <h2 className="truncate font-playfair text-[15px] italic leading-tight text-slate-900">{title}</h2>
+          <h2 className="truncate font-sans text-[15px] font-semibold not-italic leading-tight tracking-tight text-slate-900">{title}</h2>
         </div>
         {action}
       </div>
@@ -227,7 +227,7 @@ function EmptyState({ icon: Icon, title, description }: { icon: any; title: stri
         <Icon size={18} />
       </div>
       <div>
-        <p className="font-playfair text-base italic text-slate-500">{title}</p>
+        <p className="font-sans text-base font-medium not-italic leading-tight text-slate-500">{title}</p>
         {description && (
           <p className="mt-1 text-[10.5px] font-normal tracking-tight text-slate-400">{description}</p>
         )}
@@ -256,7 +256,7 @@ function Badge({ tone, children }: { tone: 'emerald' | 'amber' | 'slate' | 'gold
 
   return (
     <span
-      className={`shrink-0 rounded-full px-2 py-[0.1875rem] text-[8.5px] font-semibold leading-none tracking-tight ring-1 ring-inset ${tones[tone]}`}
+      className={`shrink-0 rounded-full px-2 py-[0.1875rem] text-[8.5px] font-semibold not-italic leading-tight tracking-tight ring-1 ring-inset ${tones[tone]}`}
     >
       {children}
     </span>
@@ -296,7 +296,7 @@ function LoginForm({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-[1.125rem] bg-slate-900 shadow-[0_4px_16px_-4px_rgba(15,23,42,0.5)]">
           <Settings2 className="h-6 w-6 text-white" />
         </div>
-        <h1 className="font-playfair text-[22px] italic leading-tight tracking-tight text-slate-900">כניסת מנהלת</h1>
+        <h1 className="font-sans text-[22px] font-semibold not-italic leading-tight tracking-tight text-slate-900">כניסת מנהלת</h1>
         <p className="mt-2 text-[9px] font-semibold uppercase tracking-[0.24em] text-[#c9a961]">אדר קוסמטיקס</p>
 
         <form onSubmit={handleLogin} className="mt-7 space-y-2">
@@ -1198,7 +1198,7 @@ export default function AdminPage() {
                 <Activity size={15} />
               </div>
               <div className="min-w-0">
-                <h1 className="font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">Console</h1>
+                <h1 className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-900">Console</h1>
                 <p className="mt-0.5 truncate text-[9px] font-medium tracking-tight text-slate-400">
                   <span className="text-[#c9a961]">אדר קוסמטיקס</span>
                   <span className="mx-1 text-slate-300">·</span>
@@ -1350,10 +1350,10 @@ export default function AdminPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <h4 className="truncate font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">{app.customer_name}</h4>
+                            <h4 className="min-w-0 truncate text-[16px] font-semibold not-italic leading-tight tracking-tight text-slate-900">{app.customer_name}</h4>
                             <StatusChip status="pending" />
                           </div>
-                          <p className="mt-1 truncate text-[11px] font-medium tracking-tight text-[#b8964f]">{app.service_title}</p>
+                          <p className="mt-1 truncate text-[11px] font-medium not-italic leading-tight tracking-tight text-[#b8964f]">{app.service_title}</p>
                         </div>
                         <div className={`shrink-0 border-r ${HAIRLINE} pr-3 text-center`}>
                           <span className="block text-[19px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">{app.start_time.slice(0,5)}</span>
@@ -1472,7 +1472,7 @@ export default function AdminPage() {
                 onClick={() => setIsQuickCalendarOpen(true)}
                 className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-2 py-1.5 transition-all active:scale-95 active:bg-slate-100/50"
               >
-                <span className="font-playfair text-[17px] italic leading-none tracking-tight text-slate-900">{formatHeDate(selectedDateStr)}</span>
+                <span className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-900">{formatHeDate(selectedDateStr)}</span>
                 <span className="truncate text-[10px] font-medium tracking-tight text-slate-400">
                   {formatHeWeekday(selectedDateStr)}
                 </span>
@@ -1507,7 +1507,7 @@ export default function AdminPage() {
                     <Lock size={22} />
                   </div>
                   <div>
-                    <p className="font-playfair text-[17px] italic tracking-tight text-slate-600">היום חסום במלואו</p>
+                    <p className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-600">היום חסום במלואו</p>
                     <p className="mt-1 text-[10.5px] font-normal tracking-tight text-slate-400">לקוחות אינן יכולות לקבוע תורים בתאריך זה.</p>
                   </div>
                 </div>
@@ -1967,7 +1967,7 @@ export default function AdminPage() {
                                 {customerHistory.map((historyItem) => (
                                   <div key={historyItem.id} className="flex items-center justify-between gap-2 rounded-xl bg-[#FDFBF6]/70 px-2.5 py-2 text-right ring-1 ring-inset ring-slate-900/[0.04]">
                                     <div className="min-w-0">
-                                      <p className="truncate text-[11.5px] font-medium leading-tight tracking-tight text-slate-800">{historyItem.service_title}</p>
+                                      <p className="truncate text-[11.5px] font-medium not-italic leading-tight tracking-tight text-slate-800">{historyItem.service_title}</p>
                                       <p className="mt-0.5 text-[9.5px] font-normal tracking-tight tabular-nums text-slate-400">
                                         {formatHeDate(historyItem.date)} · {historyItem.start_time.slice(0, 5)}
                                       </p>
@@ -2042,7 +2042,7 @@ export default function AdminPage() {
                       className="anim-fade-up flex items-center justify-between gap-2 rounded-2xl border border-slate-900/[0.05] bg-white/70 px-3 py-2.5 shadow-[0_1px_8px_-3px_rgba(0,0,0,0.05)] backdrop-blur-xl transition-all hover:border-[#c9a961]/25 hover:bg-white"
                     >
                       <div className="min-w-0 flex-1">
-                        <h4 className="truncate text-[14px] font-semibold leading-tight tracking-tight text-slate-900">{service.title}</h4>
+                        <h4 className="truncate text-[14px] font-semibold not-italic leading-tight tracking-tight text-slate-900">{service.title}</h4>
                         <div className="mt-1 flex items-center gap-2">
                           <span className="text-[12px] font-semibold tracking-tight tabular-nums text-[#b8964f]">{service.price}</span>
                           <span className="truncate text-[10px] font-normal tracking-tight tabular-nums text-slate-400">
@@ -2129,7 +2129,7 @@ export default function AdminPage() {
             <div className="mb-4 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-[10px] font-medium tracking-tight text-slate-400">תובנות והכנסות</p>
-                <h2 className="font-playfair text-[17px] italic leading-tight tracking-tight text-slate-900">
+                <h2 className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-900">
                   מבט כספי מהיר
                 </h2>
               </div>
@@ -2190,7 +2190,7 @@ export default function AdminPage() {
         <div className={SCRIM} onClick={() => setIsQuickCalendarOpen(false)}>
           <div className={`${SHEET} max-w-[19rem] p-4 text-center`} onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
-              <span className="font-playfair text-[15px] italic tracking-tight text-slate-900">ניווט מהיר ביומן</span>
+              <span className="font-sans text-[15px] font-semibold not-italic leading-tight tracking-tight text-slate-900">ניווט מהיר ביומן</span>
               <button
                 onClick={() => setIsQuickCalendarOpen(false)}
                 aria-label="סגירה"
@@ -2223,7 +2223,7 @@ export default function AdminPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className={`mb-4 flex items-center justify-between border-b ${HAIRLINE} pb-3.5`}>
-              <h2 className="font-playfair text-[17px] italic tracking-tight text-slate-900">תור חדש ידני</h2>
+              <h2 className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-900">תור חדש ידני</h2>
               <button
                 type="button"
                 onClick={() => !savingManualBooking && setIsManualBookingOpen(false)}
@@ -2378,7 +2378,7 @@ export default function AdminPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className={`mb-4 flex items-center justify-between border-b ${HAIRLINE} pb-3.5`}>
-              <h2 className="font-playfair text-[17px] italic tracking-tight text-slate-900">
+              <h2 className="font-sans text-[17px] font-semibold not-italic leading-tight tracking-tight text-slate-900">
                 {editingService ? 'עריכת שירות קיים' : 'הוספת שירות חדש'}
               </h2>
               <button
