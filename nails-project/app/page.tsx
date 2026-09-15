@@ -68,6 +68,7 @@ export default function Home() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [savingBooking, setSavingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState('');
   
   const [verificationCode, setVerificationCode] = useState<string>('');
   const [temporaryBookingData, setTemporaryBookingData] = useState<any | null>(null); 
@@ -136,7 +137,8 @@ export default function Home() {
   }, [services, selectedService]);
 
   const isValidPhoneNumber = (phone: string): boolean => {
-    const digits = phone.replace(/\D/g, '');
+    let digits = phone.replace(/\D/g, '');
+    if (digits.startsWith('972')) digits = '0' + digits.slice(3);
     return /^05\d{8}$/.test(digits);
   };
   const isFormValid = customerName.trim().length > 0 && isValidPhoneNumber(customerPhone);
@@ -313,37 +315,84 @@ export default function Home() {
     return { ...bookingData, service_title: bookingData.service_title, id: typeof res === 'string' ? res : undefined };
   };
 
-  const handleWhatsAppBooking = async () => {
-    if (!selectedServiceData || !selectedDate || !selectedTime || !customerName || !isFormValid || savingBooking) return;
+  const handleWhatsAppBooking = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (savingBooking) return;
+    setBookingError('');
+    setVerificationError('');
+
+    if (!selectedServiceData || !selectedDate || !selectedTime) {
+      setBookingError('נא לבחור שירות, תאריך ושעה');
+      alert('נא לבחור שירות, תאריך ושעה');
+      return;
+    }
+
+    const nameTrimmed = customerName.trim();
+    if (!nameTrimmed) {
+      setBookingError('נא להזין שם מלא');
+      alert('נא להזין שם מלא');
+      return;
+    }
+
+    let cleanPhone = String(customerPhone || '').replace(/\D/g, '');
+    if (cleanPhone.startsWith('972')) {
+      cleanPhone = '0' + cleanPhone.slice(3);
+    }
+    if (!/^05\d{8}$/.test(cleanPhone)) {
+      setBookingError('מספר טלפון לא תקין');
+      alert('מספר טלפון לא תקין');
+      return;
+    }
+
     setSavingBooking(true);
     try {
-      const phoneDigits = customerPhone.replace(/\D/g, '');
-      const hasActiveSession = isPhoneVerified(phoneDigits);
-      
-      const slot = availableSlots.find(s => s.key === selectedTime);
-      if (!slot) {
+      const hasActiveSession = isPhoneVerified(cleanPhone);
+
+      const targetDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate || Date.now());
+      const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+
+      const duration = Number(selectedServiceData?.durationMinutes) || 60;
+      const slot = availableSlots.find((s) => s.key === selectedTime);
+      const startTimeStr = (slot?.start || selectedTime || '').slice(0, 5);
+      if (!/^\d{2}:\d{2}$/.test(startTimeStr)) {
+        setBookingError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
         alert('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
-        setSavingBooking(false);
         return;
       }
 
-      const newBooking = { 
-        service_id: selectedServiceData.id, 
-        service_title: selectedServiceData.title,
-        service_price: selectedServiceData.price,
-        service_duration: selectedServiceData.durationMinutes, 
-        date: format(selectedDate, 'yyyy-MM-dd'), 
-        start_time: slot.start, 
-        end_time: slot.end, 
-        customer_name: customerName.trim(), 
-        customer_phone: phoneDigits, 
-        cancellation_token: uuidv4(), 
-        status: 'pending', 
-        is_verified: hasActiveSession, 
-        verification_code: ''
-      };
+      const [sh, sm] = startTimeStr.split(':').map(Number);
+      const endTotal = (sh || 0) * 60 + (sm || 0) + duration;
+      const endTimeStr = slot?.end
+        || `${String(Math.floor(endTotal / 60)).padStart(2, '0')}:${String(endTotal % 60).padStart(2, '0')}`;
+
+      if (!slot) {
+        setBookingError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+        alert('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
+        return;
+      }
+
+      const cancellationToken = uuidv4();
 
       if (hasActiveSession) {
+        const newBooking = {
+          service_id: selectedServiceData.id,
+          service_title: selectedServiceData.title,
+          service_price: selectedServiceData.price,
+          service_duration: duration,
+          date: dateStr,
+          start_time: startTimeStr,
+          end_time: endTimeStr,
+          customer_name: nameTrimmed,
+          customer_phone: cleanPhone,
+          cancellation_token: cancellationToken,
+          status: 'pending',
+          is_verified: true,
+          verification_code: '',
+        };
+
         const data = await createBookingViaRpc({
           customer_name: newBooking.customer_name,
           customer_phone: newBooking.customer_phone,
@@ -359,41 +408,68 @@ export default function Home() {
           is_verified: true,
         });
         if (data) {
-          await sendPendingNotificationToManager({ ...newBooking, ...data, service_title: data.service_title || newBooking.service_title });
-          setStep('success'); 
+          try {
+            await sendPendingNotificationToManager({
+              ...newBooking,
+              ...data,
+              service_title: data.service_title || newBooking.service_title,
+            });
+          } catch (notifyErr) {
+            console.warn('Manager notification error:', notifyErr);
+          }
+          setStep('success');
         }
-      } else { 
-        const vCode = Math.floor(1000 + Math.random() * 9000).toString();
-        newBooking.verification_code = vCode;
-
-        const smsRes = await fetch('/api/sms', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ phone: phoneDigits, code: vCode, customerName: customerName.trim() })
-        });
-        const smsData = await smsRes.json().catch(() => ({}));
-        if (!smsRes.ok || !smsData.success) {
-          alert('שגיאה בשליחת קוד האימות ב-SMS. אנא ודאי שמספר הטלפון תקין ונסי שנית.');
-          setSavingBooking(false);
-          return;
-        }
-
-        setTemporaryBookingData(newBooking); 
-        setStep('verification'); 
-        setVerificationCode(''); 
-        setVerificationError('');
-        setOtpResendFeedback('');
-        setOtpResendCooldown(30);
+        return;
       }
-    } catch (e: any) { 
-      console.error(e);
-      if (e?.code === 'SLOT_COLLISION' || e?.message === 'SLOT_COLLISION') {
+
+      const vCode = Math.floor(1000 + Math.random() * 9000).toString();
+      setTemporaryBookingData({
+        customer_name: nameTrimmed,
+        customer_phone: cleanPhone,
+        service_id: selectedServiceData.id,
+        service_title: selectedServiceData.title,
+        service_duration: duration,
+        service_price: selectedServiceData.price,
+        date: dateStr,
+        start_time: startTimeStr,
+        end_time: endTimeStr,
+        cancellation_token: cancellationToken,
+        status: 'pending',
+        is_verified: false,
+        verification_code: vCode,
+      });
+
+      try {
+        await fetch('/api/sms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: cleanPhone,
+            code: vCode,
+            customerName: nameTrimmed,
+          }),
+        });
+      } catch (smsErr) {
+        console.warn('SMS dispatch error:', smsErr);
+      }
+
+      setVerificationCode('');
+      setVerificationError('');
+      setBookingError('');
+      setOtpResendFeedback('');
+      setOtpResendCooldown(30);
+      setStep('verification');
+    } catch (err: any) {
+      console.error('handleWhatsAppBooking fatal error:', err);
+      if (err?.code === 'SLOT_COLLISION' || err?.message === 'SLOT_COLLISION') {
+        setBookingError('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
         alert('השעה שנבחרה כבר אינה זמינה, אנא בחרי שעה אחרת.');
       } else {
-        alert('שגיאה ברישום התור. אנא נסי שנית.'); 
+        setBookingError('שגיאה ברישום התור. אנא נסי שנית.');
+        alert('שגיאה ברישום התור. אנא נסי שנית.');
       }
-    } finally { 
-      setSavingBooking(false); 
+    } finally {
+      setSavingBooking(false);
     }
   };
 
@@ -761,7 +837,7 @@ export default function Home() {
                 <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="שם מלא" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" />
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="מספר טלפון" className="w-full bg-[#FAF9F6] border-none rounded-2xl px-8 py-5 outline-none focus:ring-1 focus:ring-[#c9a961] text-center text-lg font-light" dir="ltr" />
               </div>
-              <button onClick={handleWhatsAppBooking} disabled={!isFormValid || savingBooking} className={`w-full py-5 rounded-full font-bold text-sm tracking-[0.2em] uppercase shadow-2xl transition-all ${isFormValid ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-300'}`}>{savingBooking ? 'מעבד...' : 'בקשת תור ב-SMS'}</button>
+              <button type="button" onClick={handleWhatsAppBooking} disabled={!isFormValid || savingBooking} className={`w-full py-5 rounded-full font-bold text-sm tracking-[0.2em] uppercase shadow-2xl transition-all ${isFormValid ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-300'}`}>{savingBooking ? 'מעבד...' : 'בקשת תור ב-SMS'}</button>
             </div>
           </div>
         )}
