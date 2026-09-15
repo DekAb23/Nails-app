@@ -630,28 +630,57 @@ export default function AdminPage() {
     e.preventDefault();
     if (savingManualBooking) return;
 
-    const service = dbServices.find((s) => s.id === manualBookingForm.serviceId);
-    const name = manualBookingForm.customerName.trim();
-    const phone = manualBookingForm.customerPhone.replace(/\D/g, '');
-    const dateStr = manualBookingForm.date;
-    const startTime = manualBookingForm.startTime;
+    const customerName = manualBookingForm.customerName.trim();
+    const phoneDigits = String(manualBookingForm.customerPhone || '').replace(/\D/g, '');
+    const selectedService = dbServices.find((s) => s.id === manualBookingForm.serviceId) as any;
+    const selectedTime = (manualBookingForm.startTime || '').slice(0, 5);
 
-    if (!/^05\d{8}$/.test(phone)) {
-      showToast('נא להזין מספר טלפון נייד תקין בן 10 ספרות (המתחיל ב-05)', 'error');
-      return;
-    }
-
-    if (!service || !name || !dateStr || !startTime) {
+    if (!customerName) {
       showToast('אנא מלאי את כל השדות ובחרי שעה פנויה.', 'error');
       return;
     }
 
-    const duration = Number(service.duration_minutes) || 30;
-    const startMins = timeToMinutes(startTime);
-    const endMins = startMins + duration;
-    const endTime = minutesToTime(endMins);
+    if (!/^05\d{8}$/.test(phoneDigits)) {
+      showToast('נא להזין מספר טלפון נייד תקין בן 10 ספרות (המתחיל ב-05)', 'error');
+      return;
+    }
 
-    // Double-check conflict validation prior to insertion
+    if (!selectedService || !/^\d{2}:\d{2}$/.test(selectedTime)) {
+      showToast('אנא מלאי את כל השדות ובחרי שעה פנויה.', 'error');
+      return;
+    }
+
+    const targetDate =
+      selectedDate instanceof Date
+        ? selectedDate
+        : new Date((selectedDate as any) || manualBookingForm.date || Date.now());
+    const year = targetDate.getFullYear();
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const dateStr =
+      manualBookingForm.date && /^\d{4}-\d{2}-\d{2}$/.test(manualBookingForm.date)
+        ? manualBookingForm.date
+        : `${year}-${month}-${day}`;
+
+    const duration =
+      parseInt(
+        String(
+          selectedService?.durationMinutes ||
+            selectedService?.duration_minutes ||
+            selectedService?.duration ||
+            60
+        ),
+        10
+      ) || 60;
+    const [h, m] = selectedTime.split(':').map(Number);
+    const totalMinutes = (h || 0) * 60 + (m || 0) + duration;
+    const endH = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+    const endM = String(totalMinutes % 60).padStart(2, '0');
+    const endTimeStr = `${endH}:${endM}`;
+
+    const startMins = (h || 0) * 60 + (m || 0);
+    const endMins = totalMinutes;
+
     if (blockedDates.some((bd) => bd.date === dateStr)) {
       showToast('היום חסום במלואו — לא ניתן לקבוע תור.', 'error');
       return;
@@ -691,58 +720,78 @@ export default function AdminPage() {
 
     setSavingManualBooking(true);
     try {
-      const cancellationToken = uuidv4();
-      const { data: res, error: rpcErr } = await supabase.rpc('create_booking_safe', {
-        p_customer_name: name,
-        p_customer_phone: phone,
-        p_service_id: service.id,
-        p_service_name: service.title,
-        p_service_price: service.price,
-        p_service_duration: duration,
-        p_date: dateStr,
-        p_start_time: startTime,
-        p_end_time: endTime,
-        p_status: 'confirmed',
-        p_cancellation_token: cancellationToken,
-        p_is_verified: true,
-      });
+      const serviceTitle = selectedService?.title || selectedService?.name || 'טיפול';
+      const newBooking: any = {
+        service_id: String(selectedService?.id || 'manual'),
+        service_title: serviceTitle,
+        service_duration: duration,
+        date: dateStr,
+        start_time: selectedTime.slice(0, 5),
+        end_time: endTimeStr,
+        customer_name: customerName.trim(),
+        customer_phone: phoneDigits,
+        cancellation_token:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : uuidv4(),
+        status: 'confirmed',
+        is_verified: true,
+      };
 
-      const rpcMsg = `${rpcErr?.message || ''} ${rpcErr?.details || ''} ${typeof res === 'string' ? res : JSON.stringify(res ?? '')}`.toLowerCase();
-      const collision =
-        (res && typeof res === 'object' && (res.success === false || /collision|overlap|conflict|taken|תפוס|תפוסה|slot/.test(`${res.error || res.message || ''}`))) ||
-        /collision|overlap|conflict|taken|already booked|slot|תפוס|תפוסה|23p01|exclusion/.test(rpcMsg);
+      let { data, error } = await supabase.from('bookings').insert([newBooking]).select().single();
 
-      if (collision) {
-        showToast('השעה כבר תפוסה. בחרי שעה אחרת.', 'error');
+      // Fallback in case table uses service_name instead of service_title
+      if (error && (error.message?.includes('service_title') || error.details?.includes('service_title'))) {
+        delete newBooking.service_title;
+        newBooking.service_name = serviceTitle;
+        const retry = await supabase.from('bookings').insert([newBooking]).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('Manual booking DB error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        showToast('שגיאה בשמירת התור הידני', 'error');
         return;
       }
-      if (rpcErr) throw rpcErr;
 
-      const [year, month, day] = dateStr.split('-').map(Number);
-      const formattedDate = `${day}/${month}`;
-      const formattedTime = startTime.slice(0, 5);
+      const [, mm, dd] = dateStr.split('-');
+      const formattedDate = `${Number(dd)}/${Number(mm)}`;
+      const formattedTime = selectedTime.slice(0, 5);
 
       if (manualBookingForm.sendSms) {
-        const customerMessage = `היי ${name},\nהתור שלך אושר בהצלחה! 🎉\n\n${service.title}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב -\nהשלמה/תיקון בתוספת 10 ש"ח לציפורן.\nאי געה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nנתראה! ❤️`;
         try {
+          const customerMessage = `היי ${customerName},\nהתור שלך אושר בהצלחה! 🎉\n\n${serviceTitle}\nבתאריך ${formattedDate} בשעה ${formattedTime}\nבכתובת מור 5 א', קומה 6 דירה 25.\n\nשימי לב -\nהשלמה/תיקון בתוספת 10 ש"ח לציפורן.\nאי געה לתור או ביטול בפחות מ24 שעות מותנה בתשלום של 50% מסך הטיפול.\n\nנתראה! ❤️`;
           await fetch('/api/sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, message: customerMessage, isDirectMessage: true }),
+            body: JSON.stringify({ phone: phoneDigits, message: customerMessage, isDirectMessage: true }),
           });
         } catch (smsErr) {
           console.error('SMS Send bypassed or failed:', smsErr);
         }
       }
 
-      await supabase.from('activity_log').insert([
-        {
-          id: uuidv4(),
-          action: `תור נקבע ידנית עבור ${name} לתאריך ${formattedDate} בשעה ${formattedTime}`,
-          created_at: new Date().toISOString(),
-        },
-      ]);
+      try {
+        await supabase.from('activity_log').insert([
+          {
+            id: uuidv4(),
+            action: `תור נקבע ידנית עבור ${customerName} לתאריך ${formattedDate} בשעה ${formattedTime}`,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } catch (logErr) {
+        console.error('Activity log insert failed (non-blocking):', logErr);
+      }
 
+      setManualBookingForm({
+        serviceId: dbServices[0]?.id ?? '',
+        date: toLocalDateString(selectedDate),
+        startTime: '',
+        customerName: '',
+        customerPhone: '',
+        sendSms: true,
+      });
       setIsManualBookingOpen(false);
       await fetchData();
       showToast('התור נקבע בהצלחה! 🎉');
