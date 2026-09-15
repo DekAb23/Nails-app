@@ -1282,6 +1282,86 @@ export default function AdminPage() {
           color: #cbd5e1;
         }
         .rdp-chevron { fill: ${GOLD}; }
+
+        /* ---- Mobile polish: calendar (ניהול) tab only ---- */
+        .admin-mgmt-calendar {
+          width: 100%;
+          max-width: 100%;
+        }
+        .admin-mgmt-calendar .rdp-root {
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
+          --rdp-day-height: 2.75rem;
+          --rdp-day-width: 14.28%;
+          --rdp-day_button-height: 2.75rem;
+          --rdp-day_button-width: 100%;
+          --rdp-day_button-border-radius: 9999px;
+        }
+        @media (min-width: 640px) {
+          .admin-mgmt-calendar .rdp-root {
+            --rdp-day-height: 3rem;
+            --rdp-day_button-height: 3rem;
+          }
+        }
+        .admin-mgmt-calendar .rdp-months,
+        .admin-mgmt-calendar .rdp-month,
+        .admin-mgmt-calendar .rdp-month_grid {
+          width: 100%;
+          max-width: 100%;
+        }
+        .admin-mgmt-calendar .rdp-month_grid {
+          table-layout: fixed;
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0 0.35rem;
+        }
+        .admin-mgmt-calendar .rdp-weekdays {
+          width: 100%;
+        }
+        .admin-mgmt-calendar .rdp-weekday {
+          font-size: 0.6875rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          color: #94a3b8;
+          text-align: center;
+          padding: 0.55rem 0 0.65rem;
+          vertical-align: middle;
+        }
+        .admin-mgmt-calendar .rdp-day {
+          width: 14.28%;
+          padding: 0.15rem 0.1rem;
+          vertical-align: middle;
+        }
+        .admin-mgmt-calendar .rdp-day_button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          min-height: 2.75rem;
+          height: 2.75rem;
+          font-size: 1rem;
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.02em;
+        }
+        @media (min-width: 640px) {
+          .admin-mgmt-calendar .rdp-day_button {
+            min-height: 3rem;
+            height: 3rem;
+            font-size: 1.125rem;
+          }
+        }
+        .admin-mgmt-calendar .rdp-day_hasBooking:not(.rdp-selected) .rdp-day_button::after {
+          bottom: 0.2rem;
+          width: 5px;
+          height: 5px;
+        }
+        .admin-mgmt-calendar .rdp-month_caption {
+          font-size: 0.9375rem;
+          font-weight: 600;
+          padding-bottom: 0.35rem;
+        }
       `}</style>
 
       {/* ---------------- Toast ---------------- */}
@@ -1790,16 +1870,18 @@ export default function AdminPage() {
               <MiniStat label="מותאמים" value={futureSchedulesList.length} />
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <section className={`${CARD} p-4`}>
+            <div className="grid w-full max-w-full gap-3 md:grid-cols-2">
+              <section className="admin-mgmt-calendar w-full max-w-full rounded-3xl border border-slate-900/[0.05] bg-white/80 p-3 shadow-sm backdrop-blur-xl sm:p-5">
                 <SectionHeader icon={CalendarIcon} title="ניהול יומן" description="בחרי תאריך כדי לערוך את מסגרת היום, ההפסקות והחסימות." />
-                <DayPicker
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(d) => d && setSelectedDate(d)}
-                  modifiers={dayPickerModifiers}
-                  modifiersClassNames={dayPickerModifiersClassNames}
-                />
+                <div className="w-full max-w-full [&_.rdp-root]:w-full [&_.rdp-month]:w-full [&_.rdp-months]:w-full [&_.rdp-month_grid]:w-full">
+                  <DayPicker
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(d) => d && setSelectedDate(d)}
+                    modifiers={dayPickerModifiers}
+                    modifiersClassNames={dayPickerModifiersClassNames}
+                  />
+                </div>
                 {calendarLegend}
                 <button
                   onClick={async () => {
