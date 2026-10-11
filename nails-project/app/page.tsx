@@ -267,7 +267,7 @@ export default function Home() {
     const msg = `${rpcErr?.message || ''} ${rpcErr?.details || ''} ${rpcErr?.hint || ''} ${typeof res === 'string' ? res : JSON.stringify(res ?? '')}`.toLowerCase();
     if (res && typeof res === 'object' && (res.success === false || res.error || res.status === 'error')) {
       const errText = `${res.error || res.message || res.code || ''}`.toLowerCase();
-      if (/collision|overlap|conflict|taken|תפוס|תפוסה|slot/.test(errText) || res.success === false) return true;
+      if (/collision|overlap|conflict|taken|תפוס|תפוסה|slot/.test(errText)) return true;
     }
     return /collision|overlap|conflict|taken|already booked|slot|תפוס|תפוסה|23p01|exclusion/.test(msg);
   };
@@ -302,12 +302,35 @@ export default function Home() {
       p_is_verified: true,
     });
 
-    if (rpcErr || isBookingCollisionError(rpcErr, res)) {
-      const collision = isBookingCollisionError(rpcErr, res);
-      const err = collision
-        ? Object.assign(new Error('SLOT_COLLISION'), { code: 'SLOT_COLLISION' })
-        : (rpcErr || new Error('BOOKING_RPC_FAILED'));
-      throw err;
+    // A genuine slot collision from either the error or the response body → abort immediately.
+    if (isBookingCollisionError(rpcErr, res)) {
+      throw Object.assign(new Error('SLOT_COLLISION'), { code: 'SLOT_COLLISION' });
+    }
+
+    // RPC returned a non-collision DB / network error → fall back to a direct insert so that
+    // returning customers (hasActiveSession) are protected just like first-time customers in
+    // handleVerification.
+    if (rpcErr) {
+      const fallbackPayload = {
+        customer_name: (bookingData.customer_name || '').trim(),
+        customer_phone: bookingData.customer_phone,
+        service_id: bookingData.service_id,
+        service_title: bookingData.service_title || bookingData.service_name || '',
+        service_duration: Number(bookingData.service_duration) || 60,
+        date: bookingData.date,
+        start_time: bookingData.start_time,
+        end_time: bookingData.end_time,
+        status: 'pending',
+        is_verified: true,
+        cancellation_token: bookingData.cancellation_token || crypto.randomUUID(),
+      };
+      const { data: directData, error: directErr } = await supabase
+        .from('bookings')
+        .insert([fallbackPayload])
+        .select()
+        .single();
+      if (directErr) throw directErr;
+      return directData;
     }
 
     if (res && typeof res === 'object' && res.booking) return res.booking;
